@@ -7,6 +7,7 @@ import Navigation from "./Navigation";
 import TogglesShowArchs from "./TogglesShowArchs";
 import { getMultipleFiles } from "../Utils/ajax";
 import { useShowArch } from "../context/ShowArchContext";
+import ChatWidget from "../Components/ChatBot/ChatWidget";
 
 const { urls } = config;
 
@@ -307,6 +308,7 @@ class IBLayout extends Component {
                     isNetworkError={isNetworkError}
                     loadingText={`Loading ${releaseQue || 'release'} builds...`}
                 />
+                <ChatWidget />
             </div>
         );
     }

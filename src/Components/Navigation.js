@@ -487,6 +487,13 @@ const Navigation = ({ toLinks, flaworControl, archControl, showAllPullRequests =
                 <FaCode className="me-2" />
                 <span className="fw-medium">IB Profiling Results</span>
               </Nav.Link>
+
+              <LinkContainer to="/shift" onClick={handleNavbarClose}>
+                <Nav.Link className="navpill d-flex align-items-center">
+                  <FaClipboardList className="me-2" />
+                  <span className="fw-medium">Shift Console</span>
+                </Nav.Link>
+              </LinkContainer>
             </Nav>
 
             <div className="d-flex align-items-center gap-2 ms-lg-2">

@@ -7,6 +7,8 @@
     "axios": "^1.6.0",
     "axios-cache-plugin": "^0.1.0",
     "bootstrap": "^5.3.3",
+    "dompurify": "^3.4.13",
+    "marked": "^15.0.12",
     "query-string": "^8.1.0",
     "react": "^19.2.5",
     "react-bootstrap": "^2.10.10",
@@ -17,7 +19,7 @@
     "react-router-dom": "^6.30.4",
     "underscore": "^1.13.7"
   },
-   "scripts": {
+  "scripts": {
     "start": "vite",
     "build": "vite build",
     "preview": "vite preview"

@@ -10,6 +10,8 @@ import { RelValProvider } from './Stores/RelValStore';
 import { ShowArchProvider } from './context/ShowArchContext';
 import { CommandProvider } from './context/CommandContext';
 import { ExitCodeProvider } from './context/ExitCodeContext';
+import { ChatProvider } from './context/ChatContext';
+import ShiftConsolePage from './Components/ShiftConsole/ShiftConsolePage';
 
 
 const { urls } = config;
@@ -63,6 +65,7 @@ class App extends Component {
 
     // WRAP EVERYTHING IN PROVIDERS
     return (
+    <ChatProvider>
       <ExitCodeProvider>
         <CommandProvider>
           <ShowArchProvider>
@@ -86,6 +89,10 @@ class App extends Component {
                   element={<RelValLayoutWrapper />}
                 />
                 <Route
+                  path="/shift"
+                  element={<ShiftConsolePage />}
+                />
+                <Route
                   path="*"
                   element={App.containerWrapper(App.errorWrongRoute)}
                 />
@@ -94,6 +101,7 @@ class App extends Component {
           </ShowArchProvider>
         </CommandProvider>
       </ExitCodeProvider>
+    </ChatProvider>
     );
   }
 }
