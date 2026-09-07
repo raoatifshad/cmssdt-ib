@@ -1,4 +1,5 @@
 import React from "react";
+import { CODE_CHIP } from "./theme";
 
 // Parses the narrow, backend-controlled Markdown subset used by /api/shift-summary:
 // ##/###/#### headings, | pipe | tables |, "- " bullets, **bold**, `code`, and bare "---" rules.
@@ -131,7 +132,7 @@ export function renderInline(text) {
     }
     if (part.startsWith("`") && part.endsWith("`")) {
       return (
-        <code key={idx} style={{ fontSize: "0.9em" }}>
+        <code key={idx} style={CODE_CHIP}>
           {part.slice(1, -1)}
         </code>
       );

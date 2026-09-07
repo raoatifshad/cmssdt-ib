@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { BsCheckCircle } from "react-icons/bs";
+import { FaCode, FaHammer, FaProjectDiagram, FaPuzzlePiece, FaVial } from "react-icons/fa";
 import { buildDigestDocument, renderInline, isEmptySection } from "./shiftMarkdown";
 import { archStats, classifySection } from "./digestStats";
-import { theme, TONE } from "./theme";
+import { theme, TONE, CATEGORY } from "./theme";
 import ArchMatrix from "./ArchMatrix";
 import WorkflowTable from "./WorkflowTable";
 import PanelState from "./PanelState";
@@ -73,12 +74,15 @@ const DigestSubsection = ({ section }) => {
   );
 };
 
+// Icon + accent per group - lets a shifter tell "what kind of check is this" apart at a
+// glance (RelVal vs Unit Test vs Build vs AddOn vs Clang), the way GitHub Actions/Datadog
+// differentiate check *type* via icon while keeping severity color (red/green) constant.
 const GROUP_META = {
-  relval: { title: "RelVal workflows", empty: "No RelVal workflow changes this shift." },
-  clang: { title: "Clang warnings", empty: "No Clang warning changes this shift." },
-  builds: { title: "Builds", empty: "No build changes this shift." },
-  utests: { title: "Unit Tests", empty: "No Unit Test changes this shift." },
-  addons: { title: "AddOn tests", empty: "No AddOn test changes this shift." },
+  relval: { title: "RelVal workflows", empty: "No RelVal workflow changes this shift.", icon: FaProjectDiagram, color: CATEGORY.relval.fg },
+  clang: { title: "Clang warnings", empty: "No Clang warning changes this shift.", icon: FaCode, color: CATEGORY.clang.fg },
+  builds: { title: "Builds", empty: "No build changes this shift.", icon: FaHammer, color: CATEGORY.builds.fg },
+  utests: { title: "Unit Tests", empty: "No Unit Test changes this shift.", icon: FaVial, color: CATEGORY.utests.fg },
+  addons: { title: "AddOn tests", empty: "No AddOn test changes this shift.", icon: FaPuzzlePiece, color: CATEGORY.addons.fg },
 };
 
 // Collapses the backend's five stacked #### sections into two focused cards, and drops
@@ -86,11 +90,15 @@ const GROUP_META = {
 // architecture used to cost five "None." headings of scroll for no information.
 const SectionGroupCard = ({ groupKey, sections }) => {
   const meta = GROUP_META[groupKey];
+  const Icon = meta.icon;
   const nonEmpty = sections.filter((section) => !isEmptySection(section));
 
   return (
     <div style={{ background: theme.surface, border: `1px solid ${theme.border}`, borderRadius: 12, padding: 18 }}>
-      <h4 style={{ fontSize: "0.92rem", fontWeight: 700, color: theme.text, margin: "0 0 12px" }}>{meta.title}</h4>
+      <h4 style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.92rem", fontWeight: 700, color: theme.text, margin: "0 0 12px" }}>
+        <Icon size={13} color={meta.color} />
+        {meta.title}
+      </h4>
       {nonEmpty.length === 0 ? (
         <div style={{ display: "flex", alignItems: "center", gap: 8, color: TONE.success.fg, fontSize: "0.86rem" }}>
           <BsCheckCircle size={14} /> {meta.empty}

@@ -63,24 +63,49 @@ export function aggregateStats(archs) {
 
 // Same column names WorkflowTable.js already looks for (PRIMARY_COLUMNS) - reusing them
 // here means an alert's detail line names the same fields the digest table itself shows.
-function tableRowSummary(header, row) {
+// Returns {name, detail} rather than one flattened string so AlertsPanel can render just
+// the identifier on one line and put everything else - including the human-readable Name
+// column - behind a click. A card with 20 full "id — name — errors, exit code, ..." lines
+// was taking over the whole Alerts panel.
+//
+// The one-line label folds in architecture and sub-IB (build "type", e.g. ASAN/MULTIARCHS/
+// ROOT6 - see the CMSSDT release-matrix TYPE columns) so it's self-describing even read out
+// of the card's own context, not just relying on the card header a shifter might not see
+// (screenshots, copy-paste, scrolling past it). This also disambiguates real cases where
+// the same workflow_id fails on the same architecture under two different build types (or
+// even the same build type on two different architectures, e.g. ROOT6 exists on both
+// el9_amd64_gcc14 and el9_aarch64_gcc14 for the same tag) - each would otherwise render as
+// an identical-looking duplicate line.
+function tableRowSummary(header, row, archName) {
   const normalized = header.map((h) => h.trim().toLowerCase());
-  const cell = (name) => {
-    const idx = normalized.indexOf(name);
+  const cell = (fieldName) => {
+    const idx = normalized.indexOf(fieldName);
     return idx !== -1 ? (row[idx] || "").trim() : "";
   };
-  const name = cell("name") || cell("workflow");
-  const detail = [cell("errors"), cell("exit code"), cell("warnings"), cell("status")].filter(Boolean).join(", ");
-  return detail ? `${name} — ${detail}` : name || row.filter(Boolean).join(" — ");
+  const workflowId = cell("workflow");
+  const variant = cell("variant");
+  const isSubIb = !!variant && variant.toLowerCase() !== "primary";
+  const identifier = workflowId || cell("name") || row.filter(Boolean).join(" — ");
+  const name = [identifier, archName, isSubIb ? variant : null].filter(Boolean).join(" · ");
+  // Only fold "Name" into the detail line when it wasn't already used as the identifier above.
+  const detailFields = workflowId ? ["name", "errors", "exit code", "warnings", "status"] : ["errors", "exit code", "warnings", "status"];
+  const detail = detailFields
+    .map((fieldName) => {
+      const value = cell(fieldName);
+      return value ? `${header[normalized.indexOf(fieldName)]}: ${value}` : null;
+    })
+    .filter(Boolean)
+    .join(" · ");
+  return { name, detail };
 }
 
-// One line per row/bullet in a section, in the same order the Shift digest panel below
+// One entry per row/bullet in a section, in the same order the Shift digest panel below
 // already renders them - so the two views never disagree about what "the details" are.
-function sectionDetailLines(section) {
+function sectionDetailLines(section, archName) {
   const lines = [];
   section.blocks.forEach((block) => {
-    if (block.type === "table") block.rows.forEach((row) => lines.push(tableRowSummary(block.header, row)));
-    else if (block.type === "list") block.items.forEach((item) => lines.push(item));
+    if (block.type === "table") block.rows.forEach((row) => lines.push(tableRowSummary(block.header, row, archName)));
+    else if (block.type === "list") block.items.forEach((item) => lines.push({ name: item, detail: "" }));
   });
   return lines;
 }
@@ -96,13 +121,21 @@ const MAX_DETAIL_LINES = 6;
 export function buildComparisonAlerts(archs) {
   const alerts = [];
   (archs || []).forEach((arch) => {
+    // arch.name carries the backend markdown's literal backticks (e.g. "`el9_amd64_gcc14`",
+    // meant for renderInline elsewhere) - strip them here since the alert card title and
+    // each item's one-line label render as plain text, not markdown.
+    const archLabel = arch.name.replace(/`/g, "");
     arch.sections.forEach((section) => {
       const isNewIssue = NEW_ISSUE_KEYS.some((key) => SECTION_PATTERNS[key].test(section.heading));
       if (!isNewIssue || isEmptySection(section)) return;
-      const allLines = sectionDetailLines(section);
+      const allLines = sectionDetailLines(section, archLabel);
       alerts.push({
-        rule: { rule_id: `comparison-${arch.name}-${section.heading}`, name: `${section.heading} — ${arch.name}` },
-        message: `${allLines.length} item${allLines.length === 1 ? "" : "s"} introduced in ${arch.name}.`,
+        rule: { rule_id: `comparison-${arch.name}-${section.heading}`, name: `${section.heading} — ${archLabel}` },
+        // Which digest group this belongs to (relval/utests/builds/addons/clang) - lets
+        // AlertsPanel show a category icon so a shifter can tell a RelVal alert from a
+        // Unit Test alert at a glance, without the severity color itself having to vary.
+        category: classifySection(section.heading),
+        message: `${allLines.length} item${allLines.length === 1 ? "" : "s"} introduced in ${archLabel}.`,
         details: allLines.slice(0, MAX_DETAIL_LINES),
         moreCount: Math.max(0, allLines.length - MAX_DETAIL_LINES),
         evidence: { count: allLines.length },

@@ -36,6 +36,18 @@ function releaseCycle(releaseName) {
   return match ? match[1] : null;
 }
 
+// "CMSSW_20_1_X_2026-08-19-2300" -> "2026-08-19-2300" - fixed-width and same field order
+// as the timestamp itself, so a plain string comparison already sorts chronologically;
+// no need to parse into a Date. Used to keep the From/To pickers from producing a
+// backwards window (the backend has no notion of "From" being chronologically earlier
+// than "To" - it just labels whatever it's given as previous_tag/latest_tag - so a
+// reversed pick silently renders a diff that reads exactly backwards: real resolutions
+// show up as "newly failing" and vice versa, with no indication anything is off).
+function releaseTimestamp(releaseName) {
+  const match = /(\d{4}-\d{2}-\d{2}-\d{4})$/.exec(releaseName || "");
+  return match ? match[1] : null;
+}
+
 // A slow breathing dot next to the refresh timestamp - the "this view is live" signal
 // ops dashboards (Grafana, Datadog) use so a shifter trusts the data without re-reading it.
 const LivePulse = () => (
@@ -266,6 +278,21 @@ const ShiftConsolePage = () => {
     return items.map((w) => ({ value: w.release_name, label: w.release_name, mono: true }));
   }, [windows.items, currentCycle]);
 
+  // Guardrail: each side's dropdown only offers picks that keep the window chronologically
+  // forward (From <= To) - so a backwards pick simply isn't selectable, rather than being
+  // caught after the fact. Falls back to the full list when the other side or a timestamp
+  // is unavailable (e.g. still loading), so the picker is never emptied out.
+  const toTimestamp = releaseTimestamp(range.to);
+  const fromTimestamp = releaseTimestamp(range.from);
+  const fromOptions = useMemo(
+    () => (toTimestamp ? windowOptions.filter((o) => (releaseTimestamp(o.value) || "") <= toTimestamp) : windowOptions),
+    [windowOptions, toTimestamp]
+  );
+  const toOptions = useMemo(
+    () => (fromTimestamp ? windowOptions.filter((o) => (releaseTimestamp(o.value) || "") >= fromTimestamp) : windowOptions),
+    [windowOptions, fromTimestamp]
+  );
+
   // Keeps the two dropdowns in sync with whatever window the digest currently on screen
   // actually covers - after the initial parameterless load, after a refresh, and after an
   // explicit from/to pick all land here the same way, via the parsed digest title.
@@ -408,7 +435,7 @@ const ShiftConsolePage = () => {
               </span>
               <SearchableSelect
                 value={range.from}
-                options={windowOptions}
+                options={fromOptions}
                 onChange={(value) => handleRangeChange("from", value)}
                 disabled={windows.loading || windows.error}
                 minWidth={340}
@@ -416,7 +443,7 @@ const ShiftConsolePage = () => {
               <BsArrowRight color={theme.textMuted} size={13} />
               <SearchableSelect
                 value={range.to}
-                options={windowOptions}
+                options={toOptions}
                 onChange={(value) => handleRangeChange("to", value)}
                 disabled={windows.loading || windows.error}
                 minWidth={340}

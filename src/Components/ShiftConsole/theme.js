@@ -56,3 +56,31 @@ export const CARD = {
   borderRadius: 14,
   padding: "20px 22px",
 };
+
+// Style for inline `code` spans (arch names, workflow/IB identifiers, tags). Plain
+// <code> elements were inheriting Bootstrap's --bs-code-color (#d63384, a bright pink/
+// magenta) with no override, so every identifier on the page - including ones repeated
+// down a 100-row table column - read as an unintentional loud accent color. A muted
+// blue is the convention most dark-theme dev tools (VS Code, GitHub) use for inline
+// identifiers; unlike a bordered chip it stays clean at table-cell density instead of
+// boxing every cell, while still reading clearly as "this is a code token" in prose.
+export const CODE_CHIP = {
+  fontFamily: theme.mono,
+  color: "#93c5fd",
+  fontSize: "0.9em",
+};
+
+// Category accents - one per digest group (RelVal/Unit Tests/Builds/AddOn/Clang), used
+// only for a small icon + label tint so a shifter can tell categories apart at a glance.
+// Deliberately NOT used for the failing/resolved status itself - that stays TONE.danger/
+// TONE.success everywhere, unconditionally, the way Grafana/Datadog/GitHub Actions keep
+// severity color constant and convey "what kind of check is this" through icon/label
+// instead of a second, competing color axis.
+export const CATEGORY = {
+  relval: { fg: "#818cf8" }, // indigo
+  utests: { fg: "#2dd4bf" }, // teal
+  builds: { fg: "#fb923c" }, // orange
+  addons: { fg: "#c084fc" }, // violet
+  clang: { fg: "#94a3b8" }, // slate
+  other: { fg: theme.textMuted },
+};
