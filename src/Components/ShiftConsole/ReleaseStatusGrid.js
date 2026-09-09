@@ -48,8 +48,15 @@ const TotalsStrip = ({ comparison }) => (
   </div>
 );
 
-const ReleaseStatusGrid = ({ comparison }) => {
-  const archs = comparison.tests_archs || [];
+// In "Compare two" mode, both sides must render the same architecture rows in the same
+// order (falls back to this comparison's own list outside compare mode) - otherwise row 1
+// on the left isn't the same architecture as row 1 on the right, and a shifter comparing
+// side by side is silently comparing unrelated architectures whenever the two builds don't
+// happen to have identical coverage (e.g. an in-progress build that's only finished one
+// architecture so far). summarizeArchCell already renders a "missing" placeholder for an
+// architecture absent on one side, so the union is safe to render on both.
+const ReleaseStatusGrid = ({ comparison, archs: sharedArchs }) => {
+  const archs = sharedArchs || comparison.tests_archs || [];
 
   return (
     <div>

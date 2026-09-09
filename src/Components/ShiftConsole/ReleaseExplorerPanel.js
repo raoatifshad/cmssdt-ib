@@ -67,7 +67,7 @@ function useReleaseSelection(structure, loadFlavor, flavorCache) {
   };
 }
 
-const ReleaseColumn = ({ title, structure, selection, onRemove }) => {
+const ReleaseColumn = ({ title, structure, selection, onRemove, archs }) => {
   const cycleOptions = useMemo(
     () => (structure.all_prefixes || []).slice().reverse().map((p) => ({ value: p, label: p })),
     [structure]
@@ -123,7 +123,7 @@ const ReleaseColumn = ({ title, structure, selection, onRemove }) => {
       )}
 
       {selection.flavorLoading && <PanelState kind="loading" text="Loading release data…" />}
-      {!selection.flavorLoading && selection.comparison && <ReleaseStatusGrid comparison={selection.comparison} />}
+      {!selection.flavorLoading && selection.comparison && <ReleaseStatusGrid comparison={selection.comparison} archs={archs} />}
       {!selection.flavorLoading && selection.sel.flavor && !selection.comparison && (
         <PanelState kind="empty" text="No completed builds found for this flavor." />
       )}
@@ -253,6 +253,16 @@ const ReleaseExplorerPanel = () => {
   const selectionA = useReleaseSelection(structure, loadFlavor, flavorCache);
   const selectionB = useReleaseSelection(mode === "compare" ? structure : null, loadFlavor, flavorCache);
 
+  // Union (not intersection) of both sides' architectures, sorted so both columns render
+  // the identical row order - a shifter comparing side by side needs to see that Release A
+  // is simply missing an architecture (as a "missing" placeholder row), not have that
+  // architecture silently vanish from the table because A doesn't have it yet.
+  const compareArchs = useMemo(() => {
+    if (mode !== "compare") return undefined;
+    const union = new Set([...(selectionA.comparison?.tests_archs || []), ...(selectionB.comparison?.tests_archs || [])]);
+    return [...union].sort();
+  }, [mode, selectionA.comparison, selectionB.comparison]);
+
   if (error) return <PanelState kind="error" text="Couldn't load release structure data." />;
   if (!structure) return <PanelState kind="loading" text="Loading release list…" />;
 
@@ -262,8 +272,16 @@ const ReleaseExplorerPanel = () => {
 
       {mode !== "trend" && (
         <div className="d-flex flex-wrap gap-4">
-          <ReleaseColumn title="Release A" structure={structure} selection={selectionA} />
-          {mode === "compare" && <ReleaseColumn title="Release B" structure={structure} selection={selectionB} onRemove={() => setMode("single")} />}
+          <ReleaseColumn title="Release A" structure={structure} selection={selectionA} archs={compareArchs} />
+          {mode === "compare" && (
+            <ReleaseColumn
+              title="Release B"
+              structure={structure}
+              selection={selectionB}
+              archs={compareArchs}
+              onRemove={() => setMode("single")}
+            />
+          )}
         </div>
       )}
 

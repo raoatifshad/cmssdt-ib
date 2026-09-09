@@ -18,7 +18,11 @@ import { marked } from "marked";
 import { useChat } from "../../context/ChatContext";
 
 const MIN_PANEL_WIDTH = 280;
-const MAX_PANEL_WIDTH = 600;
+// The panel is a fixed-position overlay (doesn't push page content - see the "Sliding
+// panel" style block below), so it's safe to drag nearly full-viewport-wide. Reserve
+// space for the toggle-button/close-handle (44px, positioned at `left: panelWidth`) so
+// it never gets dragged off-screen.
+const MAX_PANEL_WIDTH_MARGIN = 60;
 const DEFAULT_PANEL_WIDTH = 360;
 const CHAT_API_BASE = import.meta.env.VITE_CHAT_API_BASE || "http://localhost:8002";
 const CMSSDT_API_BASE = import.meta.env.VITE_CMSSDT_API_BASE;
@@ -32,11 +36,110 @@ const escapeHtml = (value) => String(value).replace(/[&<>'"]/g, (character) => (
   '"': "&quot;",
 }[character]));
 
+const EXIT_CODE_PATTERN = /^(-?\d+)\s*\(([^)]+)\)\s*$/;
+
+// Same PRIMARY_COLUMNS set as the Shift Console's WorkflowTable.js - digest tables use
+// this exact fixed set of at-a-glance headers; anything else is drill-down evidence.
+const PRIMARY_TABLE_COLUMNS = ["workflow", "name", "errors", "exit code", "variant", "warnings", "status"];
+
+// Column-aware color coding for digest tables (Errors/Exit code/Status) - mirrors the
+// Shift Console React app's WorkflowTable.js renderExitCode/severity treatment, so a
+// shifter scanning a chat answer gets the same "red = bad" visual signal a plain wall of
+// numbers doesn't give. `renderedText` is already-safe HTML from marked's parseInline
+// (never re-escaped here); the regex checks strip any incidental tags first so a stray
+// backtick/bold in the source markdown can't break the numeric/exit-code match.
+function styledDigestCellHtml(headerLabel, renderedText) {
+  const header = (headerLabel || "").trim().toLowerCase();
+  const plain = renderedText.replace(/<[^>]*>/g, "").trim();
+
+  if (header === "errors") {
+    const numeric = parseInt(plain, 10);
+    if (Number.isFinite(numeric) && numeric > 0) {
+      return `<span style="color:#dc2626;font-weight:700;">${renderedText}</span>`;
+    }
+    return `<span style="color:#6b7280;">${renderedText}</span>`;
+  }
+
+  if (header === "exit code") {
+    const match = EXIT_CODE_PATTERN.exec(plain);
+    if (match) {
+      const [, code, label] = match;
+      const severe = /sig|segv|abort|core|crash/i.test(label);
+      const fg = severe ? "#dc2626" : "#6b7280";
+      const bg = severe ? "#fee2e2" : "#f3f4f6";
+      return (
+        `<span style="font-family:monospace;">${escapeHtml(code)}</span> ` +
+        `<span style="display:inline-block;font-size:9px;font-weight:700;padding:1px 6px;` +
+        `border-radius:999px;background:${bg};color:${fg};white-space:nowrap;">${escapeHtml(label)}</span>`
+      );
+    }
+  }
+
+  if (header === "status") {
+    if (/^failed$/i.test(plain)) return `<span style="color:#dc2626;font-weight:700;">${renderedText}</span>`;
+    if (/^passed$/i.test(plain)) return `<span style="color:#16a34a;font-weight:700;">${renderedText}</span>`;
+  }
+
+  return renderedText;
+}
+
 const renderMarkdownToHtml = (markdown) => {
   if (!markdown) return "";
 
   const renderer = new marked.Renderer();
   renderer.html = (rawHtmlFromModel) => escapeHtml(rawHtmlFromModel);
+  // Overriding table() (rather than just tablecell()) is what gives each cell access to
+  // its own column's header label, needed to decide whether it's an Errors/Exit code/
+  // Status column worth color-coding - the default tablecell(token) hook has no column
+  // index or sibling-header context on its own.
+  renderer.table = (token) => {
+    const headerLabels = token.header.map((cell) => renderer.parser.parseInline(cell.tokens).replace(/<[^>]*>/g, "").trim());
+    // Columns a shifter needs at a glance - anything else (Recurrence, PR/Issue evidence)
+    // is drill-down prose that made the table unusably wide (stretch the whole chat panel
+    // and still scroll). Mirrors the Shift Console React app's WorkflowTable.js
+    // PRIMARY_COLUMNS split, using a native <details>/<summary> disclosure per row instead
+    // of React state, since this HTML is built as a plain string, not rendered by React.
+    const primaryIdx = [];
+    const evidenceIdx = [];
+    headerLabels.forEach((label, idx) =>
+      (PRIMARY_TABLE_COLUMNS.includes(label.toLowerCase()) ? primaryIdx : evidenceIdx).push(idx)
+    );
+    const hasEvidenceColumns = evidenceIdx.length > 0;
+
+    const headerHtml =
+      primaryIdx.map((idx) => `<th>${renderer.parser.parseInline(token.header[idx].tokens)}</th>`).join("") +
+      (hasEvidenceColumns ? "<th></th>" : "");
+
+    const bodyHtml = token.rows
+      .map((row) => {
+        const primaryCellsHtml = primaryIdx
+          .map((idx) => {
+            const rendered = renderer.parser.parseInline(row[idx].tokens);
+            return `<td>${styledDigestCellHtml(headerLabels[idx], rendered)}</td>`;
+          })
+          .join("");
+        if (!hasEvidenceColumns) return `<tr>${primaryCellsHtml}</tr>`;
+
+        const evidenceEntries = evidenceIdx
+          .map((idx) => ({ label: headerLabels[idx], value: renderer.parser.parseInline(row[idx].tokens).trim() }))
+          .filter((entry) => entry.value);
+        const evidenceCell = evidenceEntries.length
+          ? `<td style="text-align:left;">` +
+            `<details><summary style="cursor:pointer;color:#0d6efd;font-size:10px;font-weight:600;">Show evidence</summary>` +
+            `<div style="margin-top:6px;display:grid;grid-template-columns:max-content 1fr;gap:4px 10px;font-size:10px;max-width:480px;">` +
+            evidenceEntries
+              .map(
+                (entry) =>
+                  `<div style="color:#6b7280;font-weight:600;white-space:nowrap;">${escapeHtml(entry.label)}</div><div>${entry.value}</div>`
+              )
+              .join("") +
+            `</div></details></td>`
+          : `<td style="text-align:left;"></td>`;
+        return `<tr>${primaryCellsHtml}${evidenceCell}</tr>`;
+      })
+      .join("");
+    return `<table>\n<thead><tr>${headerHtml}</tr></thead>\n<tbody>${bodyHtml}</tbody>\n</table>\n`;
+  };
   const rawHtml = marked.parse(markdown, {
     breaks: true,
     gfm: true,
@@ -89,11 +192,30 @@ const renderMarkdownToHtml = (markdown) => {
         line-height: 1.4;
       }
       .chat-message-content h1,
-      .chat-message-content h2,
+      .chat-message-content h2 {
+        margin: 10px 0 6px 0;
+        font-size: 13px;
+        font-weight: 700;
+        color: #1f2937;
+      }
       .chat-message-content h3 {
-        margin: 8px 0 4px 0;
-        font-size: inherit;
-        font-weight: 600;
+        margin: 10px 0 4px 0;
+        padding-top: 8px;
+        border-top: 1px solid #e5e7eb;
+        font-size: 11px;
+        font-weight: 700;
+        font-family: monospace;
+        color: #374151;
+      }
+      .chat-message-content h4,
+      .chat-message-content h5,
+      .chat-message-content h6 {
+        margin: 8px 0 3px 0;
+        font-size: 10px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+        color: #6b7280;
       }
       .chat-message-content code {
         background-color: #f3f4f6;
@@ -482,7 +604,8 @@ export default function ChatWidget() {
   useEffect(() => {
     const handleMouseMove = (e) => {
       if (!isResizing) return;
-      const newWidth = Math.min(Math.max(e.clientX, MIN_PANEL_WIDTH), MAX_PANEL_WIDTH);
+      const maxWidth = Math.max(MIN_PANEL_WIDTH, window.innerWidth - MAX_PANEL_WIDTH_MARGIN);
+      const newWidth = Math.min(Math.max(e.clientX, MIN_PANEL_WIDTH), maxWidth);
       setPanelWidth(newWidth);
     };
 

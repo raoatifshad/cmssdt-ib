@@ -5,11 +5,12 @@ import { useReactTable, getCoreRowModel, getPaginationRowModel } from "@tanstack
 import { renderInline } from "./shiftMarkdown";
 import { theme, TONE } from "./theme";
 
-// Matches one "[category] cmssw PR #12345 (merged)" mention from the backend's PR/Issue
-// evidence cell (see server/api_server.py's _workflow_evidence_cells) - lets each mention
-// render as its own colored badge instead of one flat, uncolored sentence where a merged
-// PR, an open Issue, and a closed PR all read identically.
-const EVIDENCE_MENTION_RE = /(?:\[([^\]]+)\]\s*)?cmssw\s+(PR|Issue)\s+#(\d+)\s+\(([^)]+)\)/g;
+// Matches one "[category] [cmssw PR #12345](https://.../pull/12345) (merged)" mention
+// from the backend's PR/Issue evidence cell (see server/api_server.py's
+// _workflow_evidence_cells) - lets each mention render as its own clickable, colored
+// badge instead of one flat, unlinked sentence where a merged PR, an open Issue, and a
+// closed PR all read identically.
+const EVIDENCE_MENTION_RE = /(?:\[([^\]]+)\]\s*)?\[cmssw\s+(PR|Issue)\s+#(\d+)\]\(([^)]+)\)\s+\(([^)]+)\)/g;
 
 // merged -> success (a real fix likely already landed); open -> warning (still live,
 // worth a look); anything else (closed-without-merge, unknown) -> neutral, since a
@@ -21,11 +22,14 @@ function evidenceStateTone(state) {
   return TONE.neutral;
 }
 
-const EvidenceBadge = ({ category, kind, number, state }) => {
+const EvidenceBadge = ({ category, kind, number, url, state }) => {
   const tone = evidenceStateTone(state);
   return (
-    <span
-      title={category ? `${category} — ${state}` : state}
+    <a
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer"
+      title={category ? `${category} — ${state} — opens on GitHub` : `${state} — opens on GitHub`}
       style={{
         display: "inline-flex",
         alignItems: "center",
@@ -40,11 +44,13 @@ const EvidenceBadge = ({ category, kind, number, state }) => {
         marginRight: 6,
         marginBottom: 4,
         whiteSpace: "nowrap",
+        textDecoration: "none",
+        cursor: "pointer",
       }}
     >
       {kind} #{number}
       <span style={{ opacity: 0.75, fontWeight: 500, textTransform: "capitalize" }}>{state}</span>
-    </span>
+    </a>
   );
 };
 
@@ -63,7 +69,7 @@ function renderPrIssueEvidence(text) {
     <div>
       <div style={{ display: "flex", flexWrap: "wrap" }}>
         {mentions.map((match, idx) => (
-          <EvidenceBadge key={idx} category={match[1]} kind={match[2]} number={match[3]} state={match[4]} />
+          <EvidenceBadge key={idx} category={match[1]} kind={match[2]} number={match[3]} url={match[4]} state={match[5]} />
         ))}
       </div>
       {caveat && <div style={{ color: theme.textMuted, fontSize: "0.76rem", marginTop: 2 }}>{caveat}</div>}
@@ -74,7 +80,7 @@ function renderPrIssueEvidence(text) {
 // Columns the shifter needs at a glance. Anything else the backend sends (recurrence,
 // PR evidence, stored-failure detail, ...) is treated as drill-down evidence and hidden
 // behind a per-row "Show evidence" toggle instead of always-open prose.
-const PRIMARY_COLUMNS = ["workflow", "name", "errors", "exit code", "warnings", "status"];
+const PRIMARY_COLUMNS = ["workflow", "name", "errors", "exit code", "variant", "warnings", "status"];
 const MONOSPACE_COLUMNS = ["workflow", "exit code"];
 const PAGE_SIZE_OPTIONS = [10, 20, 50, 100];
 const SEARCH_THRESHOLD = 8;
