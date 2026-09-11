@@ -5,7 +5,7 @@ import { BsArrowRepeat, BsArrowRight, BsBoxArrowRight, BsChevronLeft } from "rea
 import { FaClipboardList } from "react-icons/fa";
 import { fetchShiftJson, fetchShiftSummaryWindows, isShiftLoginAvailable } from "./shiftApi";
 import { buildDigestDocument } from "./shiftMarkdown";
-import { aggregateStats, buildComparisonAlerts } from "./digestStats";
+import { aggregateStats, buildComparisonAlerts, normalizeBackendAlert } from "./digestStats";
 import { theme, CARD } from "./theme";
 import AlertsPanel from "./AlertsPanel";
 import DigestPanel from "./DigestPanel";
@@ -263,7 +263,11 @@ const ShiftConsolePage = () => {
   // custom from/to comparison) - folded into the Alerts panel alongside the backend's
   // real-time rules below, since the backend has no notion of a shifter-picked comparison.
   const comparisonAlerts = useMemo(() => buildComparisonAlerts(digestDoc.archs), [digestDoc]);
-  const combinedAlerts = useMemo(() => [...comparisonAlerts, ...alerts.items], [comparisonAlerts, alerts.items]);
+  // The backend's *_regression rule types need reshaping into the same {category, details,
+  // ...} alert shape the digest-comparison alerts already use -- see normalizeBackendAlert.
+  // Every other rule_type passes through untouched.
+  const normalizedBackendAlerts = useMemo(() => alerts.items.map(normalizeBackendAlert), [alerts.items]);
+  const combinedAlerts = useMemo(() => [...comparisonAlerts, ...normalizedBackendAlerts], [comparisonAlerts, normalizedBackendAlerts]);
 
   // Scope the picker to the digest's own release cycle - without this, windows from every
   // cycle (e.g. CMSSW_20_1_X and CMSSW_16_1_X both building at 11:00) show up side by side
@@ -457,7 +461,7 @@ const ShiftConsolePage = () => {
 
         <section style={{ ...CARD, marginBottom: 20 }}>
           <div className="d-flex align-items-center justify-content-between mb-3">
-            <h2 style={sectionHeading}>Alerts</h2>
+            <h2 style={sectionHeading}>Recent Problems</h2>
             {!alerts.loading && !alerts.error && (
               <span
                 style={{

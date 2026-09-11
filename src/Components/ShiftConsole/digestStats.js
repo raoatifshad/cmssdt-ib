@@ -110,7 +110,7 @@ function sectionDetailLines(section, archName) {
   return lines;
 }
 
-const MAX_DETAIL_LINES = 6;
+export const MAX_DETAIL_LINES = 6;
 
 // Synthesizes alert-shaped entries - one per architecture per "new issue" section - from
 // the digest currently on screen, so a shifter browsing a custom from/to comparison sees
@@ -130,12 +130,17 @@ export function buildComparisonAlerts(archs) {
       if (!isNewIssue || isEmptySection(section)) return;
       const allLines = sectionDetailLines(section, archLabel);
       alerts.push({
-        rule: { rule_id: `comparison-${arch.name}-${section.heading}`, name: `${section.heading} — ${archLabel}` },
+        rule: { rule_id: `comparison-${arch.name}-${section.heading}`, name: section.heading },
         // Which digest group this belongs to (relval/utests/builds/addons/clang) - lets
-        // AlertsPanel show a category icon so a shifter can tell a RelVal alert from a
-        // Unit Test alert at a glance, without the severity color itself having to vary.
+        // AlertsPanel show a category icon and a human title ("RelVal failure") so a
+        // shifter can tell a RelVal alert from a Unit Test alert at a glance, without the
+        // severity color itself having to vary.
         category: classifySection(section.heading),
-        message: `${allLines.length} item${allLines.length === 1 ? "" : "s"} introduced in ${archLabel}.`,
+        // Kept separate from the message (rather than folded into rule.name, as before) so
+        // AlertsPanel can render it as its own small subtitle next to the category title -
+        // the architecture matters, but it isn't part of "what kind of problem is this".
+        archLabel,
+        message: `${allLines.length} item${allLines.length === 1 ? "" : "s"} introduced`,
         details: allLines.slice(0, MAX_DETAIL_LINES),
         moreCount: Math.max(0, allLines.length - MAX_DETAIL_LINES),
         evidence: { count: allLines.length },
@@ -155,4 +160,57 @@ export function classifySection(heading) {
   if (/unit test/i.test(heading)) return "utests";
   if (/addon/i.test(heading)) return "addons";
   return "other";
+}
+
+// Maps the backend's three dynamic "*_regression" AlertRule types (graph/alerts.py --
+// each fires one combined alert covering DEFAULT + every sub-IB, diffed against its own
+// previous build) onto the same category keys classifySection uses, so they get the same
+// icon/title treatment as the digest-synthesized alerts instead of a generic bell.
+// build_regression covers both Build and AddOn badges in one check (see find_build_regressions
+// in graph/tools.py) -- there's no way to split it into two categories up front, so it's
+// grouped under "builds" and each item's own `kind` ("build"/"addon") still shows per-row.
+const REGRESSION_RULE_CATEGORY = {
+  relval_regression: "relval",
+  unittest_regression: "utests",
+  build_regression: "builds",
+};
+
+// One evidence.newly_failing item -> the same {name, detail} shape tableRowSummary produces,
+// so AlertDetailItem renders it identically to a digest-comparison alert's rows.
+function regressionItemLine(item) {
+  const variantLabel = item.variant && item.variant.toLowerCase() !== "primary" ? item.variant : null;
+  if ("workflow_id" in item) {
+    return { name: [item.workflow_id, item.arch, variantLabel].filter(Boolean).join(" · "), detail: item.name || "" };
+  }
+  if ("kind" in item) {
+    return { name: [item.kind, item.arch, variantLabel].filter(Boolean).join(" · "), detail: "" };
+  }
+  // unittest_regression items: {name, arch, variant}
+  return { name: [item.name, item.arch, variantLabel].filter(Boolean).join(" · "), detail: "" };
+}
+
+// GET /api/alerts/status returns {rule, message, evidence} straight from evaluate_rules() --
+// fine as-is for the 5 older fixed-tag rule types (they already read well as a single message
+// line), but the 3 dynamic regression types pack up to 20 items into one long message string
+// with no category/details, so AlertsPanel can't give them the same icon + expandable
+// per-workflow list the digest-comparison alerts get. This reshapes just those three into
+// that same alert shape; every other rule_type passes through unchanged.
+export function normalizeBackendAlert(alert) {
+  const ruleType = alert.rule?.rule_type;
+  const category = REGRESSION_RULE_CATEGORY[ruleType];
+  if (!category) return alert;
+
+  const evidence = alert.evidence || {};
+  const items = evidence.newly_failing || [];
+  const archLabel =
+    evidence.previous_tag && evidence.latest_tag ? `${evidence.previous_tag} → ${evidence.latest_tag}` : alert.rule?.params?.arch || null;
+
+  return {
+    ...alert,
+    category,
+    archLabel,
+    message: `${evidence.count ?? items.length} newly failing since the previous build`,
+    details: items.slice(0, MAX_DETAIL_LINES).map(regressionItemLine),
+    moreCount: Math.max(0, items.length - MAX_DETAIL_LINES),
+  };
 }
