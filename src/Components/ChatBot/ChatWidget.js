@@ -42,6 +42,20 @@ const EXIT_CODE_PATTERN = /^(-?\d+)\s*\(([^)]+)\)\s*$/;
 // this exact fixed set of at-a-glance headers; anything else is drill-down evidence.
 const PRIMARY_TABLE_COLUMNS = ["workflow", "name", "errors", "exit code", "variant", "warnings", "status"];
 
+// The IB-comparison cross-variant table (server/api_server.py's _render_failing_workflows)
+// emits two dynamically-named columns, "Also failing in (<before_tag>)"/"Also failing in
+// (<after_tag>)" - the tag is baked into the header text itself, so an exact-match lookup
+// against PRIMARY_TABLE_COLUMNS above can never recognize them. Left unmatched, they fell
+// through to the generic evidence bucket and rendered collapsed behind "Show evidence" by
+// default - hiding the whole point of that table (which other variants share this failure)
+// unless a shifter happened to click through. Match on the fixed prefix instead of the
+// full text, since the tag suffix varies per comparison.
+const ALSO_FAILING_IN_PREFIX = "also failing in (";
+function isPrimaryColumn(label) {
+  const lower = (label || "").toLowerCase();
+  return PRIMARY_TABLE_COLUMNS.includes(lower) || lower.startsWith(ALSO_FAILING_IN_PREFIX);
+}
+
 // Column-aware color coding for digest tables (Errors/Exit code/Status) - mirrors the
 // Shift Console React app's WorkflowTable.js renderExitCode/severity treatment, so a
 // shifter scanning a chat answer gets the same "red = bad" visual signal a plain wall of
@@ -101,9 +115,7 @@ const renderMarkdownToHtml = (markdown) => {
     // of React state, since this HTML is built as a plain string, not rendered by React.
     const primaryIdx = [];
     const evidenceIdx = [];
-    headerLabels.forEach((label, idx) =>
-      (PRIMARY_TABLE_COLUMNS.includes(label.toLowerCase()) ? primaryIdx : evidenceIdx).push(idx)
-    );
+    headerLabels.forEach((label, idx) => (isPrimaryColumn(label) ? primaryIdx : evidenceIdx).push(idx));
     const hasEvidenceColumns = evidenceIdx.length > 0;
 
     const headerHtml =
