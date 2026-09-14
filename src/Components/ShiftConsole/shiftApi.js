@@ -35,6 +35,18 @@ export function fetchShiftSummaryWindows() {
   return fetchShiftJson("/api/shift-summary/windows");
 }
 
+// Structured (JSON) failing-RelVal / failing-UnitTest lists for one exact release the
+// Release Explorer panel picked via its own cycle/flavor/dated-build pickers - see
+// GET /api/release-explorer/failing. `archs` is the release's own tests_archs list
+// (ReleaseStatusGrid already has it) - always pass it, or every row comes back with
+// arch=null (the backend can't attribute a row to one architecture when it queries
+// across all of them at once).
+export function fetchReleaseExplorerFailing(tag, archs) {
+  const params = new URLSearchParams({ tag });
+  if (archs && archs.length) params.set("archs", archs.join(","));
+  return fetchShiftJson(`/api/release-explorer/failing?${params.toString()}`);
+}
+
 // /shift/login is meant to be a real browser navigation (CERN's login page can't redirect
 // back to a fetch) - but this backend returns 401 from /api/shift-whoami even when SSO is
 // completely unconfigured, and only exposes the 503 "not configured" state on /shift/login

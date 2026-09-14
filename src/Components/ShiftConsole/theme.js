@@ -70,12 +70,37 @@ export const CODE_CHIP = {
   fontSize: "0.9em",
 };
 
+// Row-background tint for WorkflowTable's hidden "tint" column - CompareFailuresPanel's
+// per-item merged RelVal/Unit table uses this to color a row by which release(s) it fails
+// in: `both` (blue - a real, persistent failure, not new), `onlyA`/`onlyB` (one release
+// only - the actual delta between the two builds, the thing a shifter most needs to spot).
+// Deliberately not amber/red for onlyA/onlyB: over this app's dark navy background, amber
+// at low alpha read as a muddy brown rather than a distinct color, and red/amber both
+// already mean "danger" elsewhere (every row here already IS a failure - the tint's job is
+// only to say *which release*, a second, orthogonal axis, so it needs its own hues rather
+// than reusing severity colors). Violet/teal are already this app's own AddOn/Unit-Tests
+// category accents (see CATEGORY below), so they read as "belongs to this app" rather than
+// a color invented just for this one table.
+// TINT_SWATCH_COLORS is the flat, fully-opaque variant for the legend - the same low alpha
+// that reads fine tinting a full-width row was nearly invisible at a 12px swatch size.
+export const TINT_COLORS = {
+  both: "rgba(59, 130, 246, 0.18)",
+  onlyA: "rgba(192, 132, 252, 0.20)",
+  onlyB: "rgba(45, 212, 191, 0.20)",
+};
+export const TINT_SWATCH_COLORS = {
+  both: "#3b82f6",
+  onlyA: "#c084fc",
+  onlyB: "#2dd4bf",
+};
+
 // Category accents - one per digest group (RelVal/Unit Tests/Builds/AddOn/Clang), used
 // only for a small icon + label tint so a shifter can tell categories apart at a glance.
 // Deliberately NOT used for the failing/resolved status itself - that stays TONE.danger/
 // TONE.success everywhere, unconditionally, the way Grafana/Datadog/GitHub Actions keep
 // severity color constant and convey "what kind of check is this" through icon/label
 // instead of a second, competing color axis.
+
 export const CATEGORY = {
   relval: { fg: "#818cf8" }, // indigo
   utests: { fg: "#2dd4bf" }, // teal

@@ -4,6 +4,18 @@ import { FaClipboardList } from "react-icons/fa";
 import { theme } from "./theme";
 import { categoryFailingTotal, summarizeArchCell } from "./releaseExplorerData";
 import StatusSphere from "./StatusSphere";
+import HoverBubble from "./HoverBubble";
+
+// The only two categories with per-item data behind the badge (RelVal workflows, Unit
+// Test names) - Builds/AddOn/Q-A are a single whole-architecture flag with nothing finer
+// to show (see TestFailuresPanel/CompareFailuresPanel's BadgeOnlyList for the same limit).
+const ITEM_LEVEL_CATEGORIES = new Set(["relvals", "utests"]);
+
+function bubbleItems(failing, categoryKey, arch) {
+  if (!failing?.data) return [];
+  const list = categoryKey === "relvals" ? failing.data.relvals : failing.data.unittests;
+  return (list || []).filter((item) => item.arch === arch);
+}
 
 // Same five categories, same row icons, as IBPageComponents/ComparisonTable.js's
 // rowLabelConfig - a shifter who knows the main dashboard recognizes this instantly.
@@ -55,7 +67,15 @@ const TotalsStrip = ({ comparison }) => (
 // happen to have identical coverage (e.g. an in-progress build that's only finished one
 // architecture so far). summarizeArchCell already renders a "missing" placeholder for an
 // architecture absent on one side, so the union is safe to render on both.
-const ReleaseStatusGrid = ({ comparison, archs: sharedArchs }) => {
+// `failing`, `onHover`/`onHoverEnd`: hovering a red RelVal/Unit circle shows a white
+// HoverBubble listing the actual failing workflow numbers/names for that architecture
+// (from the knowledge-graph backend, not the static flavor JSON this grid itself is built
+// from - that only ever carries the count), and simultaneously signals the table below
+// (TestFailuresPanel in Single-build mode, CompareFailuresPanel in Compare mode) to
+// ring-highlight the matching rows in place - the two reinforce each other rather than
+// choosing one. Builds/AddOn/Q-A circles stay plain StatusSphere, not hoverable - there's
+// no per-item data behind them at all.
+const ReleaseStatusGrid = ({ comparison, archs: sharedArchs, failing, onHover, onHoverEnd }) => {
   const archs = sharedArchs || comparison.tests_archs || [];
 
   return (
@@ -84,9 +104,24 @@ const ReleaseStatusGrid = ({ comparison, archs: sharedArchs }) => {
                 </td>
                 {CATEGORIES.map((c) => {
                   const cell = summarizeArchCell(comparison, c.key, arch);
+                  const hoverable = cell.status === "danger" && ITEM_LEVEL_CATEGORIES.has(c.key);
+                  const sphere = <StatusSphere status={cell.status} value={cell.value} icon={cellIcon(cell.status)} />;
                   return (
                     <td key={c.key} style={{ padding: "8px 12px", textAlign: "center", borderBottom: `1px solid ${theme.border}` }}>
-                      <StatusSphere status={cell.status} value={cell.value} icon={cellIcon(cell.status)} />
+                      {hoverable ? (
+                        <HoverBubble
+                          loading={failing?.loading}
+                          error={failing?.error}
+                          items={bubbleItems(failing, c.key, arch)}
+                          categoryKey={c.key}
+                          onEnter={() => onHover?.(c.key, arch)}
+                          onLeave={() => onHoverEnd?.()}
+                        >
+                          {sphere}
+                        </HoverBubble>
+                      ) : (
+                        sphere
+                      )}
                     </td>
                   );
                 })}

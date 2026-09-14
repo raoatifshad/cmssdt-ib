@@ -112,6 +112,22 @@ function sectionDetailLines(section, archName) {
 
 export const MAX_DETAIL_LINES = 6;
 
+// Per-category phrasing for a comparison alert's one-line subtitle - "N item(s) introduced"
+// read as generic filler once the row already has a category icon/title above it. Naming
+// what actually broke (workflow/unit test/build/AddOn test) reads better and lines up with
+// normalizeBackendAlert's "N newly failing since the previous build" wording for the
+// backend's *_regression alerts, so the two alert sources don't read inconsistently side by
+// side. "other" keeps the old generic phrasing as a fallback for any future digest section
+// classifySection doesn't recognize yet.
+const CATEGORY_ALERT_MESSAGE = {
+  relval: (n) => `${n} workflow${n === 1 ? "" : "s"} newly failing`,
+  utests: (n) => `${n} unit test${n === 1 ? "" : "s"} newly failing`,
+  builds: (n) => `${n} build${n === 1 ? "" : "s"} newly failing`,
+  addons: (n) => `${n} AddOn test${n === 1 ? "" : "s"} newly failing`,
+  clang: (n) => `${n} new clang warning${n === 1 ? "" : "s"}`,
+  other: (n) => `${n} item${n === 1 ? "" : "s"} introduced`,
+};
+
 // Synthesizes alert-shaped entries - one per architecture per "new issue" section - from
 // the digest currently on screen, so a shifter browsing a custom from/to comparison sees
 // newly introduced errors surface in the Alerts panel automatically, with the actual
@@ -129,18 +145,19 @@ export function buildComparisonAlerts(archs) {
       const isNewIssue = NEW_ISSUE_KEYS.some((key) => SECTION_PATTERNS[key].test(section.heading));
       if (!isNewIssue || isEmptySection(section)) return;
       const allLines = sectionDetailLines(section, archLabel);
+      const category = classifySection(section.heading);
       alerts.push({
         rule: { rule_id: `comparison-${arch.name}-${section.heading}`, name: section.heading },
         // Which digest group this belongs to (relval/utests/builds/addons/clang) - lets
         // AlertsPanel show a category icon and a human title ("RelVal failure") so a
         // shifter can tell a RelVal alert from a Unit Test alert at a glance, without the
         // severity color itself having to vary.
-        category: classifySection(section.heading),
+        category,
         // Kept separate from the message (rather than folded into rule.name, as before) so
         // AlertsPanel can render it as its own small subtitle next to the category title -
         // the architecture matters, but it isn't part of "what kind of problem is this".
         archLabel,
-        message: `${allLines.length} item${allLines.length === 1 ? "" : "s"} introduced`,
+        message: (CATEGORY_ALERT_MESSAGE[category] || CATEGORY_ALERT_MESSAGE.other)(allLines.length),
         details: allLines.slice(0, MAX_DETAIL_LINES),
         moreCount: Math.max(0, allLines.length - MAX_DETAIL_LINES),
         evidence: { count: allLines.length },

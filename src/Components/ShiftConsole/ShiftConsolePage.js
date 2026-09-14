@@ -20,6 +20,43 @@ const sectionHeading = {
   margin: 0,
 };
 
+const PAGE_TABS = [
+  { key: "explorer", label: "Release Explorer" },
+  { key: "digest", label: "Shift digest" },
+];
+
+// Recent Problems (and the scoreboard) stay above these tabs, visible no matter which
+// tab is active - only the Shift digest / Release Explorer content itself switches.
+// Both panels stay mounted the whole time (CSS-hidden, not unmounted) so Release
+// Explorer's own picks/fetched flavor data survive switching away and back, instead of
+// resetting to its defaults and refetching every time a shifter flips tabs.
+const PageTabSwitcher = ({ tab, onChange }) => (
+  <div style={{ display: "flex", gap: 6, marginBottom: 16, borderBottom: `1px solid ${theme.border}`, paddingBottom: 12 }}>
+    {PAGE_TABS.map((t) => {
+      const active = t.key === tab;
+      return (
+        <button
+          key={t.key}
+          type="button"
+          onClick={() => onChange(t.key)}
+          style={{
+            border: `1px solid ${active ? theme.primary : theme.border}`,
+            background: active ? "rgba(59, 130, 246, 0.16)" : "transparent",
+            color: active ? "#93c5fd" : theme.textSecondary,
+            borderRadius: 999,
+            padding: "6px 16px",
+            fontSize: "0.85rem",
+            fontWeight: 700,
+            cursor: "pointer",
+          }}
+        >
+          {t.label}
+        </button>
+      );
+    })}
+  </div>
+);
+
 // "Shift summary: CMSSW_20_1_X_2026-08-19-1100 -> CMSSW_20_1_X_2026-08-19-2300"
 // -> { label: "Shift summary", from: "CMSSW_...", to: "CMSSW_..." }
 function parseDigestWindow(title) {
@@ -140,6 +177,7 @@ const ShiftConsolePage = () => {
   const [summary, setSummary] = useState({ markdown: "", loading: true, error: false, loadedAt: null });
   const [alerts, setAlerts] = useState({ items: [], loading: true, error: false });
   const [arch, setArch] = useState("");
+  const [pageTab, setPageTab] = useState("explorer");
   const [windows, setWindows] = useState({ items: [], loading: true, error: false });
   // Both empty = "current" (default backend window). A custom window is only requested
   // once both sides are picked, so we never send a lone from/to and hit the backend's 422.
@@ -341,7 +379,7 @@ const ShiftConsolePage = () => {
 
   return (
     <div style={{ background: theme.page, minHeight: "100vh", paddingTop: 24, paddingBottom: 60 }}>
-      <div style={{ maxWidth: 1240, margin: "0 auto", padding: "0 20px" }}>
+      <div style={{ maxWidth: 1680, margin: "0 auto", padding: "0 20px" }}>
         <Button
           size="sm"
           variant="outline-secondary"
@@ -490,13 +528,13 @@ const ShiftConsolePage = () => {
           />
         )}
 
-        <section style={{ marginBottom: 28 }}>
-          <h2 style={{ ...sectionHeading, marginBottom: 12 }}>Shift digest</h2>
+        <PageTabSwitcher tab={pageTab} onChange={setPageTab} />
+
+        <section style={{ marginBottom: 28, display: pageTab === "digest" ? "block" : "none" }}>
           <DigestPanel markdown={summary.markdown} loading={summary.loading} error={summary.error} onRetry={() => loadSummary(arch, range)} />
         </section>
 
-        <section>
-          <h2 style={{ ...sectionHeading, marginBottom: 4 }}>Release Explorer</h2>
+        <section style={{ display: pageTab === "explorer" ? "block" : "none" }}>
           <div style={{ color: theme.textMuted, fontSize: "0.82rem", marginBottom: 14 }}>
             Pick any release cycle, flavor, and dated build to see its full Builds / Unit / RelVal / AddOn / Q-A
             status - independent of the live shift window above. Add a second release to compare.

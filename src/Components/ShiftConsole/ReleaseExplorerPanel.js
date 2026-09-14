@@ -7,6 +7,9 @@ import { theme } from "./theme";
 import { buildTrendSeries, buildsBetween, fetchFlavorData, fetchStructure, listDatedBuilds } from "./releaseExplorerData";
 import SearchableSelect from "./SearchableSelect";
 import ReleaseStatusGrid from "./ReleaseStatusGrid";
+import TestFailuresPanel from "./TestFailuresPanel";
+import CompareFailuresPanel from "./CompareFailuresPanel";
+import { useFailingData } from "./useFailingData";
 import TrendChart from "./TrendChart";
 import PanelState from "./PanelState";
 
@@ -67,7 +70,17 @@ function useReleaseSelection(structure, loadFlavor, flavorCache) {
   };
 }
 
-const ReleaseColumn = ({ title, structure, selection, onRemove, archs }) => {
+// `showFailuresPanel`: Single-build mode renders TestFailuresPanel right inside this
+// column, same as always. Compare mode does not - two independent per-release RelVal/Unit
+// tables can never stay visually aligned once either one is searched, sorted, or paged on
+// its own, so Compare mode instead renders one CompareFailuresPanel (merged, one row per
+// distinct failure) once below both columns; this column only ever shows its own status
+// grid. `onHover`/`onHoverEnd`/`highlightCategory`/`highlightArch` are lifted to
+// ReleaseExplorerPanel (not owned here) for exactly that reason - Compare mode's hover
+// needs to reach a table that isn't inside either column at all.
+const ReleaseColumn = ({
+  title, structure, selection, onRemove, archs, failing, showFailuresPanel, onHover, onHoverEnd, highlightCategory, highlightArch,
+}) => {
   const cycleOptions = useMemo(
     () => (structure.all_prefixes || []).slice().reverse().map((p) => ({ value: p, label: p })),
     [structure]
@@ -123,7 +136,20 @@ const ReleaseColumn = ({ title, structure, selection, onRemove, archs }) => {
       )}
 
       {selection.flavorLoading && <PanelState kind="loading" text="Loading release data…" />}
-      {!selection.flavorLoading && selection.comparison && <ReleaseStatusGrid comparison={selection.comparison} archs={archs} />}
+      {!selection.flavorLoading && selection.comparison && (
+        <>
+          <ReleaseStatusGrid comparison={selection.comparison} archs={archs} failing={failing} onHover={onHover} onHoverEnd={onHoverEnd} />
+          {showFailuresPanel && (
+            <TestFailuresPanel
+              comparison={selection.comparison}
+              archs={archs || selection.comparison.tests_archs}
+              failing={failing}
+              highlightCategory={highlightCategory}
+              highlightArch={highlightArch}
+            />
+          )}
+        </>
+      )}
       {!selection.flavorLoading && selection.sel.flavor && !selection.comparison && (
         <PanelState kind="empty" text="No completed builds found for this flavor." />
       )}
@@ -232,7 +258,16 @@ const ReleaseExplorerPanel = () => {
   const [structure, setStructure] = useState(null);
   const [error, setError] = useState(false);
   const [flavorCache, setFlavorCache] = useState({});
-  const [mode, setMode] = useState("single");
+  const [mode, setModeRaw] = useState("single");
+  // {category, arch} | null - shared by both ReleaseColumns' grids and (in Compare mode)
+  // CompareFailuresPanel, since Compare mode's merged table isn't inside either column.
+  const [hover, setHover] = useState(null);
+  // Wraps setMode so a stale hover from one mode (e.g. a Compare-only category like a
+  // merged-table row) never lingers and highlights nothing meaningful after switching.
+  const setMode = (next) => {
+    setModeRaw(next);
+    setHover(null);
+  };
   const inFlight = React.useRef(new Set());
 
   useEffect(() => {
@@ -263,6 +298,16 @@ const ReleaseExplorerPanel = () => {
     return [...union].sort();
   }, [mode, selectionA.comparison, selectionB.comparison]);
 
+  // Fetched once per side here (not inside TestFailuresPanel/CompareFailuresPanel) so
+  // Compare mode's merged table (see CompareFailuresPanel) can be built from both releases'
+  // lists at once. selectionB's tag/archs are only passed when actually comparing, so this
+  // fetch is simply skipped (useFailingData no-ops on a null tag) outside Compare mode.
+  const failingA = useFailingData(selectionA.comparison?.release_name, compareArchs || selectionA.comparison?.tests_archs);
+  const failingB = useFailingData(
+    mode === "compare" ? selectionB.comparison?.release_name : null,
+    compareArchs || selectionB.comparison?.tests_archs,
+  );
+
   if (error) return <PanelState kind="error" text="Couldn't load release structure data." />;
   if (!structure) return <PanelState kind="loading" text="Loading release list…" />;
 
@@ -272,17 +317,47 @@ const ReleaseExplorerPanel = () => {
 
       {mode !== "trend" && (
         <div className="d-flex flex-wrap gap-4">
-          <ReleaseColumn title="Release A" structure={structure} selection={selectionA} archs={compareArchs} />
+          <ReleaseColumn
+            title="Release A"
+            structure={structure}
+            selection={selectionA}
+            archs={compareArchs}
+            failing={failingA}
+            showFailuresPanel={mode !== "compare"}
+            onHover={(category, arch) => setHover({ category, arch })}
+            onHoverEnd={() => setHover(null)}
+            highlightCategory={hover?.category}
+            highlightArch={hover?.arch}
+          />
           {mode === "compare" && (
             <ReleaseColumn
               title="Release B"
               structure={structure}
               selection={selectionB}
               archs={compareArchs}
+              failing={failingB}
+              showFailuresPanel={false}
+              onHover={(category, arch) => setHover({ category, arch })}
+              onHoverEnd={() => setHover(null)}
+              highlightCategory={hover?.category}
+              highlightArch={hover?.arch}
               onRemove={() => setMode("single")}
             />
           )}
         </div>
+      )}
+
+      {mode === "compare" && selectionA.comparison && selectionB.comparison && (
+        <CompareFailuresPanel
+          comparisonA={selectionA.comparison}
+          comparisonB={selectionB.comparison}
+          archs={compareArchs}
+          failingA={failingA}
+          failingB={failingB}
+          highlight={hover}
+          labelA={selectionA.comparison.release_name}
+          labelB={selectionB.comparison.release_name}
+        />
       )}
 
       {mode === "single" && (

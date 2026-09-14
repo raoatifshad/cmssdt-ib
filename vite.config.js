@@ -57,12 +57,14 @@ export default defineConfig(({ mode }) => {
         "/api/shift-whoami": { target: shiftBackend, changeOrigin: true },
         "/api/shift-summary": { target: shiftBackend, changeOrigin: true },
         "/api/alerts/status": { target: shiftBackend, changeOrigin: true },
+        "/api/alerts/evaluate": { target: shiftBackend, changeOrigin: true },
+        "/api/release-explorer/failing": { target: shiftBackend, changeOrigin: true },
       },
     },
 
     // Only takes effect if production is served via `vite preview` rather than a static
-    // Nginx/CDN host. If it's a static host, mirror the six rules above (never bare
-    // "/shift") in that host's own reverse-proxy config - it can't read this file.
+    // Nginx/CDN host. If it's a static host, mirror the rules above (never bare "/shift")
+    // in that host's own reverse-proxy config - it can't read this file.
     preview: {
       proxy: {
         "/shift/login": { target: shiftBackend, changeOrigin: true },
@@ -71,6 +73,8 @@ export default defineConfig(({ mode }) => {
         "/api/shift-whoami": { target: shiftBackend, changeOrigin: true },
         "/api/shift-summary": { target: shiftBackend, changeOrigin: true },
         "/api/alerts/status": { target: shiftBackend, changeOrigin: true },
+        "/api/alerts/evaluate": { target: shiftBackend, changeOrigin: true },
+        "/api/release-explorer/failing": { target: shiftBackend, changeOrigin: true },
       },
     },
   };
