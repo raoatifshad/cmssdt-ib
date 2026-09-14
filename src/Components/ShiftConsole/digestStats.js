@@ -134,7 +134,15 @@ const CATEGORY_ALERT_MESSAGE = {
 // workflow/warning detail attached, not just a bare count. The backend's
 // /api/alerts/status only evaluates the live window; it has no notion of a manually
 // picked comparison, so this always runs client-side against whatever digest just loaded.
-export function buildComparisonAlerts(archs) {
+//
+// `windowLabel` ("<from tag> → <to tag>", from the digest's own parsed title - see
+// ShiftConsolePage's parseDigestWindow) is stamped onto every alert this produces, the
+// same field normalizeBackendAlert's regression alerts carry - since both kinds of alert
+// end up merged into the one Recent Problems list, and a backend alert's own comparison
+// window ("latest vs previous", always) can be a genuinely different pair of builds than
+// whatever window is currently loaded here, every row needs to say which comparison
+// actually produced it rather than leaving that ambiguous.
+export function buildComparisonAlerts(archs, windowLabel) {
   const alerts = [];
   (archs || []).forEach((arch) => {
     // arch.name carries the backend markdown's literal backticks (e.g. "`el9_amd64_gcc14`",
@@ -157,6 +165,7 @@ export function buildComparisonAlerts(archs) {
         // AlertsPanel can render it as its own small subtitle next to the category title -
         // the architecture matters, but it isn't part of "what kind of problem is this".
         archLabel,
+        windowLabel: windowLabel || null,
         message: (CATEGORY_ALERT_MESSAGE[category] || CATEGORY_ALERT_MESSAGE.other)(allLines.length),
         details: allLines.slice(0, MAX_DETAIL_LINES),
         moreCount: Math.max(0, allLines.length - MAX_DETAIL_LINES),
@@ -219,13 +228,22 @@ export function normalizeBackendAlert(alert) {
 
   const evidence = alert.evidence || {};
   const items = evidence.newly_failing || [];
-  const archLabel =
-    evidence.previous_tag && evidence.latest_tag ? `${evidence.previous_tag} → ${evidence.latest_tag}` : alert.rule?.params?.arch || null;
+  // archLabel and windowLabel are two different things, not one field doing double duty:
+  // archLabel is "which architecture" (only meaningful if the rule itself was created
+  // scoped to one via params.arch - most aren't, they cover every architecture at once, so
+  // this is usually null); windowLabel is "which two builds were actually diffed" - always
+  // "latest vs previous" globally for a backend rule, which can be a genuinely different
+  // pair of tags than whatever window a shifter currently has loaded on the Shift digest
+  // tab. AlertsPanel renders both, distinctly, so a shifter never has to guess which
+  // comparison produced a given row.
+  const archLabel = alert.rule?.params?.arch || null;
+  const windowLabel = evidence.previous_tag && evidence.latest_tag ? `${evidence.previous_tag} → ${evidence.latest_tag}` : null;
 
   return {
     ...alert,
     category,
     archLabel,
+    windowLabel,
     message: `${evidence.count ?? items.length} newly failing since the previous build`,
     details: items.slice(0, MAX_DETAIL_LINES).map(regressionItemLine),
     moreCount: Math.max(0, items.length - MAX_DETAIL_LINES),

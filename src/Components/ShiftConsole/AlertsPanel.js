@@ -1,22 +1,35 @@
 import React, { useState } from "react";
 import { Collapse } from "react-bootstrap";
 import { BsBell, BsCheckCircle, BsChevronRight } from "react-icons/bs";
-import { FaCode, FaHammer, FaProjectDiagram, FaPuzzlePiece, FaVial } from "react-icons/fa";
+import { FaCode, FaCubes, FaLayerGroup, FaPlus, FaVial } from "react-icons/fa";
 import { renderInline } from "./shiftMarkdown";
 import { theme, TONE, CATEGORY } from "./theme";
 import PanelState from "./PanelState";
 
-// Same category -> icon mapping as DigestPanel's GROUP_META, so an alert card shows the
-// same visual language as the digest section it was synthesized from. Alerts with no
-// category (the backend's own /api/alerts/status rules, which predate this grouping)
-// fall back to a plain bell - still distinguishable from the categorized ones, and never
-// mistaken for a wrong category.
-const CATEGORY_ICON = { relval: FaProjectDiagram, utests: FaVial, builds: FaHammer, addons: FaPuzzlePiece, clang: FaCode };
+// Same category -> icon mapping as DigestPanel's GROUP_META, and the same icons as the
+// main IB Dashboard's own "Row Icons" legend (Navigation.js) - Builds/Unit/RelVal/AddOn/
+// Q-A read as the same visual language everywhere in the app, not a separate icon set
+// invented for this panel. Alerts with no category (the backend's own /api/alerts/status
+// rules, which predate this grouping) fall back to a plain bell - still distinguishable
+// from the categorized ones, and never mistaken for a wrong category. Clang has no
+// equivalent in that legend (it isn't one of the five build-matrix columns), so it keeps
+// its own icon.
+const CATEGORY_ICON = { relval: FaLayerGroup, utests: FaVial, builds: FaCubes, addons: FaPlus, clang: FaCode };
+
+// Human-readable row title per category, standing in for the raw section heading
+// ("Newly failing RelVal") - the architecture is shown separately (alert.archLabel), so
+// the title itself only needs to say what kind of problem this is.
+const CATEGORY_TITLE = {
+  relval: "RelVal failure",
+  utests: "Unit test failures",
+  builds: "Build failure",
+  addons: "AddOn failure",
+  clang: "Clang warning increase",
+};
 
 // One item in an alert's detail list - collapsed to just the workflow/warning name so a
-// card with a dozen items stays scannable, with the errors/exit code/etc. detail (built
-// by digestStats.js's tableRowSummary) tucked behind a click instead of always-on, same
-// pattern as WorkflowTable.js's per-row "Show evidence" toggle.
+// row with a dozen items stays scannable, with the errors/exit code/etc. detail (built by
+// digestStats.js's tableRowSummary) tucked behind a click instead of always-on.
 const AlertDetailItem = ({ item }) => {
   const [open, setOpen] = useState(false);
   const hasDetail = !!item.detail;
@@ -62,55 +75,96 @@ const AlertDetailItem = ({ item }) => {
   );
 };
 
-const AlertCard = ({ alert }) => {
+// One row in the Recent Problems feed: icon badge, category title + arch/message
+// subtitle, chevron - clicking the row expands the workflow-level detail list beneath it.
+// No timestamp column - neither the backend's real-time rules nor the comparison alerts
+// synthesized from a digest carry a per-event time, only what fired and its evidence.
+const AlertRow = ({ alert }) => {
+  const [open, setOpen] = useState(false);
   const CategoryIcon = CATEGORY_ICON[alert.category] || BsBell;
   const categoryColor = CATEGORY[alert.category]?.fg || theme.textMuted;
+  const title = CATEGORY_TITLE[alert.category] || alert.rule?.name || "Alert";
+  const hasDetails = alert.details?.length > 0;
 
   return (
-    <div
-      style={{
-        background: TONE.danger.tint,
-        border: `1px solid ${TONE.danger.ring}`,
-        borderLeft: "4px solid #ef4444",
-        borderRadius: 10,
-        padding: "12px 16px",
-        marginBottom: 10,
-      }}
-    >
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12, marginBottom: 4 }}>
+    <div style={{ borderBottom: `1px solid ${theme.border}` }}>
+      <button
+        type="button"
+        onClick={() => hasDetails && setOpen((prev) => !prev)}
+        style={{
+          all: "unset",
+          boxSizing: "border-box",
+          display: "flex",
+          alignItems: "center",
+          gap: 12,
+          width: "100%",
+          padding: "12px 4px",
+          cursor: hasDetails ? "pointer" : "default",
+        }}
+      >
         <span
           style={{
+            width: 34,
+            height: 34,
+            borderRadius: "50%",
+            flexShrink: 0,
             display: "flex",
             alignItems: "center",
-            gap: 7,
-            fontWeight: 700,
-            fontSize: "0.78rem",
-            color: TONE.danger.fg,
-            textTransform: "uppercase",
-            letterSpacing: "0.04em",
+            justifyContent: "center",
+            background: TONE.danger.tint,
           }}
         >
-          <CategoryIcon size={12} color={categoryColor} />
-          {alert.rule?.name || "Alert"}
+          <CategoryIcon size={15} color={categoryColor} />
         </span>
-        {typeof alert.evidence?.count === "number" && (
-          <span style={{ fontFamily: theme.mono, fontWeight: 700, color: TONE.danger.fg, fontSize: "0.85rem" }}>
-            {alert.evidence.count}
-          </span>
+        <span style={{ flex: 1, minWidth: 0, textAlign: "left" }}>
+          <div style={{ fontWeight: 700, fontSize: "0.9rem", color: TONE.danger.fg }}>{title}</div>
+          <div
+            title={[alert.archLabel, alert.windowLabel, alert.message].filter(Boolean).join(" · ")}
+            style={{
+              color: theme.textMuted,
+              fontSize: "0.8rem",
+              marginTop: 2,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {alert.archLabel && <span style={{ fontFamily: theme.mono }}>{alert.archLabel}</span>}
+            {alert.archLabel && " · "}
+            {/* Which two builds actually produced this row - backend regression alerts
+                always diff "latest vs previous" globally, digest-comparison alerts diff
+                whatever window is currently loaded on the Shift digest tab, and those two
+                can legitimately be different builds at the same moment. Without this, two
+                alert rows sitting next to each other in the same list could silently refer
+                to different comparisons with no way to tell which is which. */}
+            {alert.windowLabel && <span style={{ fontFamily: theme.mono }}>{alert.windowLabel}</span>}
+            {alert.windowLabel && " · "}
+            {renderInline(alert.message)}
+          </div>
+        </span>
+        {hasDetails && (
+          <BsChevronRight
+            size={13}
+            color={theme.textMuted}
+            style={{ flexShrink: 0, transform: open ? "rotate(90deg)" : "none", transition: "transform 0.15s" }}
+          />
         )}
-      </div>
-      <div style={{ color: theme.textSecondary, fontSize: "0.9rem" }}>{renderInline(alert.message)}</div>
-      {alert.details?.length > 0 && (
-        <ul style={{ margin: "8px 0 0", padding: 0 }}>
-          {alert.details.map((item, idx) => (
-            <AlertDetailItem key={idx} item={item} />
-          ))}
-          {alert.moreCount > 0 && (
-            <li style={{ color: theme.textMuted, fontSize: "0.82rem", fontStyle: "italic", listStyle: "none", paddingLeft: 15 }}>
-              +{alert.moreCount} more — see the Shift digest below
-            </li>
-          )}
-        </ul>
+      </button>
+      {hasDetails && (
+        <Collapse in={open}>
+          <div style={{ padding: "0 4px 12px 58px" }}>
+            <ul style={{ margin: 0, padding: 0 }}>
+              {alert.details.map((item, idx) => (
+                <AlertDetailItem key={idx} item={item} />
+              ))}
+              {alert.moreCount > 0 && (
+                <li style={{ color: theme.textMuted, fontSize: "0.82rem", fontStyle: "italic", listStyle: "none" }}>
+                  +{alert.moreCount} more — see the Shift digest below
+                </li>
+              )}
+            </ul>
+          </div>
+        </Collapse>
       )}
     </div>
   );
@@ -145,7 +199,7 @@ const AlertsPanel = ({ alerts, loading, error, onRetry }) => {
   return (
     <div>
       {alerts.map((alert, idx) => (
-        <AlertCard key={alert.rule?.rule_id || idx} alert={alert} />
+        <AlertRow key={alert.rule?.rule_id || idx} alert={alert} />
       ))}
     </div>
   );

@@ -175,7 +175,7 @@ const ShiftConsolePage = () => {
 
   const [access, setAccess] = useState({ status: "checking", username: null });
   const [summary, setSummary] = useState({ markdown: "", loading: true, error: false, loadedAt: null });
-  const [alerts, setAlerts] = useState({ items: [], loading: true, error: false });
+  const [alerts, setAlerts] = useState({ items: [], loading: true, error: false, loadedAt: null });
   const [arch, setArch] = useState("");
   const [pageTab, setPageTab] = useState("explorer");
   const [windows, setWindows] = useState({ items: [], loading: true, error: false });
@@ -249,7 +249,7 @@ const ShiftConsolePage = () => {
     setAlerts((prev) => ({ ...prev, loading: true, error: false }));
     fetchShiftJson("/api/alerts/status")
       .then((data) => {
-        setAlerts({ items: data.alerts || [], loading: false, error: false });
+        setAlerts({ items: data.alerts || [], loading: false, error: false, loadedAt: new Date() });
       })
       .catch((err) => {
         if (handleAuthError(err)) return;
@@ -300,7 +300,13 @@ const ShiftConsolePage = () => {
   // Errors the currently-displayed digest itself surfaces (default live window, or a
   // custom from/to comparison) - folded into the Alerts panel alongside the backend's
   // real-time rules below, since the backend has no notion of a shifter-picked comparison.
-  const comparisonAlerts = useMemo(() => buildComparisonAlerts(digestDoc.archs), [digestDoc]);
+  // "<from tag> → <to tag>" for whatever window the digest currently on screen covers -
+  // stamped onto every comparison alert (see buildComparisonAlerts) so it's never
+  // ambiguous which comparison produced a given Recent Problems row, especially once
+  // merged alongside backend regression alerts whose own window ("latest vs previous",
+  // always) can be a different pair of builds than this one at the same moment.
+  const windowLabel = digestWindow ? `${digestWindow.from} → ${digestWindow.to}` : null;
+  const comparisonAlerts = useMemo(() => buildComparisonAlerts(digestDoc.archs, windowLabel), [digestDoc, windowLabel]);
   // The backend's *_regression rule types need reshaping into the same {category, details,
   // ...} alert shape the digest-comparison alerts already use -- see normalizeBackendAlert.
   // Every other rule_type passes through untouched.
@@ -389,6 +395,43 @@ const ShiftConsolePage = () => {
         >
           <BsChevronLeft size={12} /> Back to IB Dashboard
         </Button>
+
+        {/* Renders before the arch/date-picker header below on purpose - Recent Problems
+            is not filtered by anything selected down there (the backend alert half of it
+            never was; see windowLabel above for why even the digest-comparison half needs
+            its own per-row label now that both live in the same list). Sitting right below
+            a row of pickers made it read as if picking a different arch or window would
+            change what's "firing", which was never true for the backend half. */}
+        <section style={{ ...CARD, marginBottom: 20 }}>
+          <div className="d-flex align-items-center justify-content-between mb-3">
+            <div>
+              <h2 style={sectionHeading}>Recent Problems</h2>
+              <div style={{ fontSize: "0.76rem", color: theme.textMuted, marginTop: 2 }}>
+                {/* Alerts only re-evaluate on page load or Refresh, never live (see
+                    ShiftConsolePage's own notes on loadAlerts) - a timestamp here is the
+                    difference between "current as of when I last checked" and looking like
+                    a live feed that updates on its own. */}
+                {alerts.loadedAt ? `Last checked ${alerts.loadedAt.toLocaleTimeString()}` : "Checking…"}
+              </div>
+            </div>
+            {!alerts.loading && !alerts.error && (
+              <span
+                style={{
+                  fontSize: "0.72rem",
+                  fontWeight: 700,
+                  borderRadius: 999,
+                  padding: "3px 10px",
+                  color: combinedAlerts.length ? "#f87171" : "#4ade80",
+                  background: combinedAlerts.length ? "rgba(239, 68, 68, 0.14)" : "rgba(34, 197, 94, 0.14)",
+                  border: `1px solid ${combinedAlerts.length ? "rgba(239, 68, 68, 0.4)" : "rgba(34, 197, 94, 0.35)"}`,
+                }}
+              >
+                {combinedAlerts.length ? `${combinedAlerts.length} firing` : "All clear"}
+              </span>
+            )}
+          </div>
+          <AlertsPanel alerts={combinedAlerts} loading={alerts.loading} error={alerts.error} onRetry={loadAlerts} />
+        </section>
 
         <div style={{ ...CARD, marginBottom: 20 }}>
           <div className="d-flex justify-content-between align-items-start flex-wrap gap-3">
@@ -496,28 +539,6 @@ const ShiftConsolePage = () => {
             </div>
           )}
         </div>
-
-        <section style={{ ...CARD, marginBottom: 20 }}>
-          <div className="d-flex align-items-center justify-content-between mb-3">
-            <h2 style={sectionHeading}>Recent Problems</h2>
-            {!alerts.loading && !alerts.error && (
-              <span
-                style={{
-                  fontSize: "0.72rem",
-                  fontWeight: 700,
-                  borderRadius: 999,
-                  padding: "3px 10px",
-                  color: combinedAlerts.length ? "#f87171" : "#4ade80",
-                  background: combinedAlerts.length ? "rgba(239, 68, 68, 0.14)" : "rgba(34, 197, 94, 0.14)",
-                  border: `1px solid ${combinedAlerts.length ? "rgba(239, 68, 68, 0.4)" : "rgba(34, 197, 94, 0.35)"}`,
-                }}
-              >
-                {combinedAlerts.length ? `${combinedAlerts.length} firing` : "All clear"}
-              </span>
-            )}
-          </div>
-          <AlertsPanel alerts={combinedAlerts} loading={alerts.loading} error={alerts.error} onRetry={loadAlerts} />
-        </section>
 
         {!summary.loading && !summary.error && digestDoc.archs.length > 0 && (
           <ShiftScoreboard
