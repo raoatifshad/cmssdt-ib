@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { BsCheckCircle } from "react-icons/bs";
-import { FaCode, FaHammer, FaProjectDiagram, FaPuzzlePiece, FaVial } from "react-icons/fa";
+import { FaCode, FaCubes, FaLayerGroup, FaPlus, FaVial } from "react-icons/fa";
 import { buildDigestDocument, renderInline, isEmptySection } from "./shiftMarkdown";
 import { archStats, classifySection } from "./digestStats";
 import { theme, TONE, CATEGORY } from "./theme";
@@ -77,12 +77,16 @@ const DigestSubsection = ({ section }) => {
 // Icon + accent per group - lets a shifter tell "what kind of check is this" apart at a
 // glance (RelVal vs Unit Test vs Build vs AddOn vs Clang), the way GitHub Actions/Datadog
 // differentiate check *type* via icon while keeping severity color (red/green) constant.
+// Same icons as the main IB Dashboard's own "Row Icons" legend (Navigation.js), so RelVal/
+// Builds/Unit/AddOn read as the same visual language everywhere in the app. Clang has no
+// equivalent in that legend (it isn't one of the five build-matrix columns), so it keeps
+// its own icon.
 const GROUP_META = {
-  relval: { title: "RelVal workflows", empty: "No RelVal workflow changes this shift.", icon: FaProjectDiagram, color: CATEGORY.relval.fg },
+  relval: { title: "RelVal workflows", empty: "No RelVal workflow changes this shift.", icon: FaLayerGroup, color: CATEGORY.relval.fg },
   clang: { title: "Clang warnings", empty: "No Clang warning changes this shift.", icon: FaCode, color: CATEGORY.clang.fg },
-  builds: { title: "Builds", empty: "No build changes this shift.", icon: FaHammer, color: CATEGORY.builds.fg },
+  builds: { title: "Builds", empty: "No build changes this shift.", icon: FaCubes, color: CATEGORY.builds.fg },
   utests: { title: "Unit Tests", empty: "No Unit Test changes this shift.", icon: FaVial, color: CATEGORY.utests.fg },
-  addons: { title: "AddOn tests", empty: "No AddOn test changes this shift.", icon: FaPuzzlePiece, color: CATEGORY.addons.fg },
+  addons: { title: "AddOn tests", empty: "No AddOn test changes this shift.", icon: FaPlus, color: CATEGORY.addons.fg },
 };
 
 // Collapses the backend's five stacked #### sections into two focused cards, and drops
