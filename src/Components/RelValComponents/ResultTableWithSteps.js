@@ -84,7 +84,7 @@ const ColumnTextFilter = ({ column, placeholder = "Filter..." }) => {
   );
 };
 
-const StatusBadge = ({ text, color, onClick, glyphicon }) => {
+const StatusBadge = ({ text, color, onClick, glyphicon, clickable = false }) => {
   const style = {
     backgroundColor: color,
     color: "white",
@@ -95,7 +95,7 @@ const StatusBadge = ({ text, color, onClick, glyphicon }) => {
     margin: "0 3px",
     display: "inline-flex",
     alignItems: "center",
-    cursor: onClick ? "pointer" : "default",
+    cursor: onClick || clickable ? "pointer" : "default",
     transition: "all 0.2s ease",
     whiteSpace: "nowrap",
     lineHeight: 1.1,
@@ -194,7 +194,7 @@ const StepCell = ({
       <StatusBadge text={` ${stepNumber}`} color="#6c757d" onClick={onClick} />
       {logUrl ? (
         <a href={logUrl} target="_blank" rel="noopener noreferrer" style={{ textDecoration: "none" }}>
-          <StatusBadge text={exitCode || getLabelName(status)} color={bgColor} glyphicon={glyphicon} />
+          <StatusBadge text={exitCode || getLabelName(status)} color={bgColor} glyphicon={glyphicon} clickable />
         </a>
       ) : (
         <StatusBadge text={exitCode || getLabelName(status)} color={bgColor} glyphicon={glyphicon} />
