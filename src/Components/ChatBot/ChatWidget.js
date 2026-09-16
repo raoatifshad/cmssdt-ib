@@ -18,10 +18,16 @@ import { marked } from "marked";
 import { useChat } from "../../context/ChatContext";
 
 const MIN_PANEL_WIDTH = 280;
+// Below this, a chat input column stops being usable at all - but it's
+// still narrower than MIN_PANEL_WIDTH, because the automatic initial sizing
+// on a narrow phone needs to shrink further than a user's manual desktop
+// drag ever should, specifically to preserve room for the close-tab margin.
+const MOBILE_MIN_PANEL_WIDTH = 220;
 // The panel is a fixed-position overlay (doesn't push page content - see the "Sliding
 // panel" style block below), so it's safe to drag nearly full-viewport-wide. Still leave
-// a margin so it can't be dragged edge-to-edge and hide the rest of the page entirely.
-const MAX_PANEL_WIDTH_MARGIN = 60;
+// a margin - sized to fit the close-tab mascot's clip window (90px) plus a little
+// breathing room - so it never gets pushed off the right edge of the viewport.
+const MAX_PANEL_WIDTH_MARGIN = 110;
 const DEFAULT_PANEL_WIDTH = 360;
 const CHAT_API_BASE = import.meta.env.VITE_CHAT_API_BASE || "http://localhost:8002";
 const CMSSDT_API_BASE = import.meta.env.VITE_CMSSDT_API_BASE;
@@ -883,8 +889,25 @@ export default function ChatWidget() {
   const [showGreeting, setShowGreeting] = useState(false);
   const [showFarewell, setShowFarewell] = useState(false);
   const [farewellRevealed, setFarewellRevealed] = useState(false);
+  // Touch devices have no reliable hover state, so the mascot's hover-to-
+  // reveal/greet interactions would otherwise just never fire there -
+  // treat it as permanently "hovered" instead so it's visible and
+  // tappable straight away.
+  const [isTouchDevice] = useState(
+    () => typeof window !== "undefined" && !!window.matchMedia && !window.matchMedia("(hover: hover)").matches
+  );
   const [input, setInput] = useState("");
-  const [panelWidth, setPanelWidth] = useState(DEFAULT_PANEL_WIDTH);
+  // Desktop reserves a margin so the close-tab mascot (docked outside the
+  // panel, to the right of it) never gets pushed off-screen. On a touch
+  // device that mascot instead moves inside the panel (see the close
+  // control below), so there's nothing to reserve room for - the panel can
+  // and should just take the full screen, the way a mobile chat UI
+  // normally would, rather than leaving an oddly narrow column.
+  const [panelWidth, setPanelWidth] = useState(() => {
+    if (typeof window === "undefined") return DEFAULT_PANEL_WIDTH;
+    if (isTouchDevice) return window.innerWidth;
+    return Math.min(DEFAULT_PANEL_WIDTH, Math.max(MOBILE_MIN_PANEL_WIDTH, window.innerWidth - MAX_PANEL_WIDTH_MARGIN));
+  });
   const [isResizing, setIsResizing] = useState(false);
   const [expandedWorkflows, setExpandedWorkflows] = useState({});
   const [editingMessageId, setEditingMessageId] = useState(null);
@@ -906,6 +929,19 @@ export default function ChatWidget() {
       bodyRef.current.scrollTop = bodyRef.current.scrollHeight;
     }
   }, [messages, loading]);
+
+  // Re-fit on rotation/resize too, not just at mount.
+  useEffect(() => {
+    const handleWindowResize = () => {
+      if (isTouchDevice) {
+        setPanelWidth(window.innerWidth);
+        return;
+      }
+      setPanelWidth((width) => Math.min(width, Math.max(MOBILE_MIN_PANEL_WIDTH, window.innerWidth - MAX_PANEL_WIDTH_MARGIN)));
+    };
+    window.addEventListener("resize", handleWindowResize);
+    return () => window.removeEventListener("resize", handleWindowResize);
+  }, [isTouchDevice]);
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -1270,7 +1306,8 @@ export default function ChatWidget() {
     }, 650);
   };
 
-  const mascotRevealed = mascotVisible || farewellRevealed;
+  const mascotRevealed = isTouchDevice || mascotVisible || farewellRevealed;
+  const closeTabRevealed = isTouchDevice || mascotVisible;
   const mascotGesture = showGreeting ? "greet" : showFarewell ? "bye" : "idle";
 
   return (
@@ -1302,62 +1339,124 @@ export default function ChatWidget() {
             padding: 0,
             cursor: "pointer",
             filter: "drop-shadow(0 4px 10px rgba(0,0,0,0.3))",
-            transform: mascotRevealed ? "translateX(-4px) scale(1.05)" : "translateX(-42px)",
+            transform: mascotRevealed
+              ? "translateX(-4px) scale(1.05)"
+              : isTouchDevice
+              ? "translateX(-30px)"
+              : "translateX(-42px)",
             transition: "transform 0.32s cubic-bezier(0.34, 1.56, 0.64, 1)",
           }}
         >
-          <div style={{ position: "relative", animation: "cmssdtBob 2.6s ease-in-out infinite" }}>
-            <ChatMascot gesture={mascotGesture} />
-            <OrbitParticles />
-            <BigBangBurst />
+          {/* Smaller footprint on touch devices - a phone screen has much
+              less spare room than a desktop window for this to peek out
+              into. */}
+          <div style={{ transform: isTouchDevice ? "scale(0.7)" : undefined, transformOrigin: "bottom left" }}>
+            <div style={{ position: "relative", animation: "cmssdtBob 2.6s ease-in-out infinite" }}>
+              <ChatMascot gesture={mascotGesture} />
+              <OrbitParticles />
+              <BigBangBurst />
+            </div>
           </div>
         </button>
       )}
 
-      {/* Open state: the close control is the same mascot again, scaled
-          down small and tucked half behind the panel's edge outside the
-          panel (panelWidth isn't a real clipping boundary the way the
-          window edge is, so an overflow-hidden clip window does the actual
-          hiding rather than a bare translateX). It sits permanently
-          revealed and grows slightly on hover as interactive feedback; the
-          "click to close chat" label - styled like a message from the bot
-          itself - only appears on that same hover, instead of sitting
-          there permanently. Clicking either the mascot or the label slides
-          the mascot fully out and plays a quick bye wave first (see
-          handleCloseClick), and only once that finishes does the panel
-          actually close. */}
-      {open && (
-        <>
-          <div
-            onMouseEnter={() => setMascotVisible(true)}
-            onMouseLeave={() => setMascotVisible(false)}
-            style={{
-              position: "fixed",
-              bottom: 10,
-              left: panelWidth,
-              zIndex: 1060,
-              width: 90,
-              height: 110,
-              overflow: "hidden",
-              transition: "left 0.3s ease",
-            }}
-          >
-            <button
-              onClick={handleCloseClick}
-              aria-label="Close chat"
+      {/* Open state, mobile: the panel is full-width on a touch device (see
+          panelWidth above), so there's no "outside the panel" space left to
+          dock a close-tab into - it lives inside the panel instead, near
+          the bottom-right corner, with a small "×" badge on the bot rather
+          than the desktop version's text bubble (which needs more
+          horizontal room than a phone screen has to spare). */}
+      {open && isTouchDevice && (
+        <button
+          onClick={handleCloseClick}
+          aria-label="Close chat"
+          style={{
+            position: "fixed",
+            bottom: 26,
+            right: 84,
+            zIndex: 1060,
+            border: "none",
+            background: "transparent",
+            padding: 0,
+            cursor: "pointer",
+          }}
+        >
+          <div style={{ position: "relative" }}>
+            <div style={{ transform: "scale(0.5)", transformOrigin: "top left", filter: "drop-shadow(0 3px 8px rgba(0,0,0,0.3))" }}>
+              <div style={{ position: "relative", animation: "cmssdtBob 2.6s ease-in-out infinite" }}>
+                <ChatMascot gesture={mascotGesture} />
+                <OrbitParticles />
+                <BigBangBurst />
+              </div>
+            </div>
+            <div
+              aria-hidden="true"
               style={{
                 position: "absolute",
-                left: 0,
-                top: 20,
-                border: "none",
-                background: "transparent",
-                padding: 0,
-                cursor: "pointer",
-                transform: mascotVisible ? "translateX(-4px) scale(1.15)" : "translateX(-28px) scale(1)",
-                transformOrigin: "left center",
-                transition: "transform 0.28s cubic-bezier(0.34, 1.56, 0.64, 1)",
+                left: 30,
+                top: -6,
+                width: 20,
+                height: 20,
+                borderRadius: "50%",
+                background: "#dc3545",
+                color: "#fff",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: 13,
+                fontWeight: 700,
+                lineHeight: 1,
+                boxShadow: "0 2px 6px rgba(0,0,0,0.35)",
               }}
             >
+              ×
+            </div>
+          </div>
+        </button>
+      )}
+
+      {/* Open state, desktop: the close control is the same mascot again,
+          scaled down small and tucked half behind the panel's edge outside
+          the panel (panelWidth isn't a real clipping boundary the way the
+          window edge is, so an overflow-hidden clip window does the actual
+          hiding rather than a bare translateX). It sits permanently
+          revealed and grows slightly on hover as interactive feedback, with
+          the same small "×" badge the mobile version uses instead of a
+          text label. Clicking it slides the mascot fully out and plays a
+          quick bye wave first (see handleCloseClick), and only once that
+          finishes does the panel actually close. */}
+      {open && !isTouchDevice && (
+        <div
+          onMouseEnter={() => setMascotVisible(true)}
+          onMouseLeave={() => setMascotVisible(false)}
+          style={{
+            position: "fixed",
+            bottom: 10,
+            left: panelWidth,
+            zIndex: 1060,
+            width: 90,
+            height: 110,
+            overflow: "hidden",
+            transition: "left 0.3s ease",
+          }}
+        >
+          <button
+            onClick={handleCloseClick}
+            aria-label="Close chat"
+            style={{
+              position: "absolute",
+              left: 0,
+              top: 20,
+              border: "none",
+              background: "transparent",
+              padding: 0,
+              cursor: "pointer",
+              transform: closeTabRevealed ? "translateX(-4px) scale(1.15)" : "translateX(-28px) scale(1)",
+              transformOrigin: "left center",
+              transition: "transform 0.28s cubic-bezier(0.34, 1.56, 0.64, 1)",
+            }}
+          >
+            <div style={{ position: "relative" }}>
               <div style={{ transform: "scale(0.6)", transformOrigin: "top left", filter: "drop-shadow(0 3px 8px rgba(0,0,0,0.3))" }}>
                 <div style={{ position: "relative", animation: "cmssdtBob 2.6s ease-in-out infinite" }}>
                   <ChatMascot gesture={mascotGesture} />
@@ -1365,66 +1464,31 @@ export default function ChatWidget() {
                   <BigBangBurst />
                 </div>
               </div>
-            </button>
-          </div>
-          <div
-            onClick={handleCloseClick}
-            onMouseEnter={() => setMascotVisible(true)}
-            onMouseLeave={() => setMascotVisible(false)}
-            style={{
-              position: "fixed",
-              bottom: 62,
-              left: panelWidth + 48,
-              zIndex: 1060,
-              padding: "7px 12px",
-              borderRadius: 10,
-              background: "#fff",
-              border: "1px solid #dee2e6",
-              color: "#374151",
-              fontSize: "12px",
-              fontWeight: 700,
-              letterSpacing: "0.03em",
-              boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
-              whiteSpace: "nowrap",
-              cursor: "pointer",
-              opacity: mascotVisible ? 1 : 0,
-              pointerEvents: mascotVisible ? "auto" : "none",
-              transition: "left 0.3s ease, opacity 0.2s ease",
-            }}
-          >
-            {/* Tail pointing back at the mascot's head height, so this
-                reads as the bot speaking rather than a generic floating
-                label - an outline-then-fill layering trick to keep the
-                border consistent all the way around, including the tail. */}
-            <div
-              style={{
-                position: "absolute",
-                left: -7,
-                top: "50%",
-                transform: "translateY(-50%)",
-                width: 0,
-                height: 0,
-                borderTop: "7px solid transparent",
-                borderBottom: "7px solid transparent",
-                borderRight: "7px solid #dee2e6",
-              }}
-            />
-            <div
-              style={{
-                position: "absolute",
-                left: -5,
-                top: "50%",
-                transform: "translateY(-50%)",
-                width: 0,
-                height: 0,
-                borderTop: "6px solid transparent",
-                borderBottom: "6px solid transparent",
-                borderRight: "6px solid #fff",
-              }}
-            />
-            CLOSE CHAT
-          </div>
-        </>
+              <div
+                aria-hidden="true"
+                style={{
+                  position: "absolute",
+                  left: 38,
+                  top: -6,
+                  width: 20,
+                  height: 20,
+                  borderRadius: "50%",
+                  background: "#dc3545",
+                  color: "#fff",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: 13,
+                  fontWeight: 700,
+                  lineHeight: 1,
+                  boxShadow: "0 2px 6px rgba(0,0,0,0.35)",
+                }}
+              >
+                ×
+              </div>
+            </div>
+          </button>
+        </div>
       )}
 
       {/* Sliding panel */}
