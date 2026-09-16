@@ -19,9 +19,8 @@ import { useChat } from "../../context/ChatContext";
 
 const MIN_PANEL_WIDTH = 280;
 // The panel is a fixed-position overlay (doesn't push page content - see the "Sliding
-// panel" style block below), so it's safe to drag nearly full-viewport-wide. Reserve
-// space for the toggle-button/close-handle (44px, positioned at `left: panelWidth`) so
-// it never gets dragged off-screen.
+// panel" style block below), so it's safe to drag nearly full-viewport-wide. Still leave
+// a margin so it can't be dragged edge-to-edge and hide the rest of the page entirely.
 const MAX_PANEL_WIDTH_MARGIN = 60;
 const DEFAULT_PANEL_WIDTH = 360;
 const CHAT_API_BASE = import.meta.env.VITE_CHAT_API_BASE || "http://localhost:8002";
@@ -556,8 +555,334 @@ const renderProfessionalComparison = (content) => {
   return DOMPurify.sanitize(tableHtml + workflowHtml, { USE_PROFILES: { html: true } });
 };
 
+const CMS_LOGO_URL = "/CMS_logo-round.png";
+
+// Keyframes for the mascot's idle "personality" moves - independent
+// per-eye blinks (so it reads as an alternating wink rather than a
+// synchronized robot blink), eye color cycling, a smile/"oh" mouth
+// crossfade, and a gentle bob. Defined once as real CSS (inline style
+// can't declare @keyframes, only reference them by name) and reused via
+// the `animation` shorthand on individual SVG nodes below. These run
+// continuously - the mascot IS the launcher now, so it should look alive
+// even at rest, not just on hover.
+function MascotKeyframes() {
+  return (
+    <style>{`
+      @keyframes cmssdtEyeColor {
+        0%, 100% { fill: #3ddc84; stroke: #3ddc84; }
+        33% { fill: #38bdf8; stroke: #38bdf8; }
+        66% { fill: #f472b6; stroke: #f472b6; }
+      }
+      @keyframes cmssdtBlinkLeft {
+        0%, 88%, 100% { transform: scaleY(1); }
+        92% { transform: scaleY(0.15); }
+      }
+      @keyframes cmssdtBlinkRight {
+        0%, 90%, 100% { transform: scaleY(1); }
+        94% { transform: scaleY(0.15); }
+      }
+      @keyframes cmssdtSmileFade {
+        0%, 60%, 100% { opacity: 1; }
+        75% { opacity: 0; }
+      }
+      @keyframes cmssdtOhFade {
+        0%, 60%, 100% { opacity: 0; }
+        75% { opacity: 1; }
+      }
+      @keyframes cmssdtBob {
+        0%, 100% { transform: translateY(0) rotate(0deg); }
+        50% { transform: translateY(-4px) rotate(-2deg); }
+      }
+      @keyframes cmssdtFlash {
+        0%, 80%, 100% { opacity: 0; transform: scale(0.3); }
+        84% { opacity: 1; transform: scale(1); }
+        92% { opacity: 0; transform: scale(1.5); }
+      }
+      @keyframes cmssdtArmLeft {
+        0%, 100% { transform: rotate(0deg); }
+        25% { transform: rotate(-4deg); }
+        50% { transform: rotate(3deg); }
+        75% { transform: rotate(-3deg); }
+      }
+      @keyframes cmssdtArmRight {
+        0%, 70%, 100% { transform: rotate(0deg); }
+        10% { transform: rotate(4deg); }
+        30% { transform: rotate(-3deg); }
+        50% { transform: rotate(3deg); }
+        78% { transform: rotate(-20deg); }
+        82% { transform: rotate(24deg); }
+        86% { transform: rotate(-18deg); }
+        90% { transform: rotate(20deg); }
+        94% { transform: rotate(-6deg); }
+      }
+      @keyframes cmssdtArmGreet {
+        0%, 100% { transform: rotate(0deg); }
+        25% { transform: rotate(-26deg); }
+        50% { transform: rotate(24deg); }
+        75% { transform: rotate(-20deg); }
+      }
+      @keyframes cmssdtTrack {
+        0%, 80%, 100% { opacity: 0; transform: scaleY(0.1); }
+        84% { opacity: 1; transform: scaleY(1); }
+        93% { opacity: 0; transform: scaleY(1.1); }
+      }
+      @keyframes cmssdtOrbitCW {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+      }
+      @keyframes cmssdtOrbitCCW {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(-360deg); }
+      }
+      @keyframes cmssdtOrbitCollide {
+        0%, 12%, 100% { opacity: 0; transform: scale(0.3); }
+        4% { opacity: 1; transform: scale(1.8); }
+        8% { opacity: 0; transform: scale(2.4); }
+      }
+    `}</style>
+  );
+}
+
+// Small particles continuously circling the bot in opposite directions -
+// since they share a period, they pass each other twice per lap, and a
+// flash is timed to land right at each of those two meeting points (top at
+// t=0, bottom at t=half-period). A third, faster particle on a tighter
+// orbit adds extra motion without needing its own collision partner.
+function OrbitParticles() {
+  const radius = 44;
+  const innerRadius = 30;
+  return (
+    <div aria-hidden="true" style={{ position: "absolute", left: 42, top: 58, width: 0, height: 0, pointerEvents: "none" }}>
+      <div style={{ position: "absolute", animation: "cmssdtOrbitCW 6s linear infinite" }}>
+        <span
+          style={{
+            position: "absolute",
+            left: -3,
+            top: -radius - 3,
+            width: 6,
+            height: 6,
+            borderRadius: "50%",
+            background: "#38bdf8",
+            boxShadow: "0 0 6px 1px #38bdf8",
+          }}
+        />
+      </div>
+      <div style={{ position: "absolute", animation: "cmssdtOrbitCCW 6s linear infinite" }}>
+        <span
+          style={{
+            position: "absolute",
+            left: -3,
+            top: -radius - 3,
+            width: 6,
+            height: 6,
+            borderRadius: "50%",
+            background: "#f472b6",
+            boxShadow: "0 0 6px 1px #f472b6",
+          }}
+        />
+      </div>
+      <div style={{ position: "absolute", animation: "cmssdtOrbitCW 3.4s linear infinite" }}>
+        <span
+          style={{
+            position: "absolute",
+            left: -2.5,
+            top: -innerRadius - 2.5,
+            width: 5,
+            height: 5,
+            borderRadius: "50%",
+            background: "#facc15",
+            boxShadow: "0 0 5px 1px #facc15",
+          }}
+        />
+      </div>
+      <div
+        style={{
+          position: "absolute",
+          left: -6,
+          top: -radius - 6,
+          width: 12,
+          height: 12,
+          borderRadius: "50%",
+          background: "radial-gradient(circle, #ffffff 0%, #a5f3fc 45%, transparent 75%)",
+          animation: "cmssdtOrbitCollide 6s ease-in-out infinite",
+        }}
+      />
+      <div
+        style={{
+          position: "absolute",
+          left: -6,
+          top: radius - 6,
+          width: 12,
+          height: 12,
+          borderRadius: "50%",
+          background: "radial-gradient(circle, #ffffff 0%, #a5f3fc 45%, transparent 75%)",
+          animation: "cmssdtOrbitCollide 6s ease-in-out infinite 3s",
+        }}
+      />
+    </div>
+  );
+}
+
+// A small "collision event" on the CMS badge - a brief vertex flash with
+// thin straight tracks shooting outward at irregular angles/lengths, closer
+// to an actual CMS/ATLAS event display than a cartoon starburst. Fires once
+// every ~9s (see cmssdtFlash/cmssdtTrack above); centered on the badge at
+// svg-space (42, 80).
+function BigBangBurst() {
+  const tracks = [
+    { angle: 8, length: 13, color: "#f87171" },
+    { angle: 52, length: 10, color: "#38bdf8" },
+    { angle: 97, length: 15, color: "#facc15" },
+    { angle: 138, length: 9, color: "#4ade80" },
+    { angle: 176, length: 12, color: "#f87171" },
+    { angle: 214, length: 14, color: "#38bdf8" },
+    { angle: 262, length: 10, color: "#facc15" },
+    { angle: 308, length: 13, color: "#4ade80" },
+  ];
+  return (
+    <div aria-hidden="true" style={{ position: "absolute", left: 42, top: 80, width: 0, height: 0, pointerEvents: "none" }}>
+      <div
+        style={{
+          position: "absolute",
+          left: -5,
+          top: -5,
+          width: 10,
+          height: 10,
+          borderRadius: "50%",
+          background: "radial-gradient(circle, #ffffff 0%, #fff3b0 55%, transparent 78%)",
+          animation: "cmssdtFlash 9s ease-in-out infinite",
+        }}
+      />
+      {tracks.map(({ angle, length, color }, i) => (
+        <div key={angle} style={{ position: "absolute", left: 0, top: 0, transform: `rotate(${angle}deg)` }}>
+          <div
+            style={{
+              position: "absolute",
+              left: -0.8,
+              top: 0,
+              width: 1.6,
+              height: length,
+              background: color,
+              borderRadius: 1,
+              transformOrigin: "top center",
+              animation: "cmssdtTrack 9s ease-out infinite",
+              animationDelay: `${i * 0.015}s`,
+            }}
+          />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// Original artwork (not a copy of any stock illustration) - a friendly
+// robot bust with the CMS round logo standing in for a badge on its chest,
+// in place of a generic company logo. This is the launcher itself now (see
+// the button below), so it's sized to peek out from behind the window edge
+// rather than sit on a fully-drawn standing body. `gesture` swaps the right
+// arm's idle loop for a one-shot enthusiastic wave (same motion serves both
+// "hi" and "bye" - a wave is a wave) triggered on first hover / on close.
+function ChatMascot({ gesture = "idle" }) {
+  const rightArmAnimation =
+    gesture === "idle"
+      ? "cmssdtArmRight 9s ease-in-out infinite"
+      : gesture === "bye"
+      ? "cmssdtArmGreet 0.5s ease-in-out 1"
+      : "cmssdtArmGreet 0.9s ease-in-out 2";
+  return (
+    <svg width="84" height="110" viewBox="0 0 84 110" fill="none">
+      <line x1="26" y1="14" x2="20" y2="2" stroke="#c7ccd1" strokeWidth="3" strokeLinecap="round" />
+      <circle cx="20" cy="2" r="3.5" fill="#c7ccd1" />
+      <line x1="58" y1="14" x2="64" y2="2" stroke="#c7ccd1" strokeWidth="3" strokeLinecap="round" />
+      <circle cx="64" cy="2" r="3.5" fill="#c7ccd1" />
+      <rect x="6" y="24" width="9" height="20" rx="4.5" fill="#e7e9ec" stroke="#c7ccd1" />
+      <rect x="69" y="24" width="9" height="20" rx="4.5" fill="#e7e9ec" stroke="#c7ccd1" />
+      <rect x="14" y="10" width="56" height="46" rx="22" fill="#2b2f36" />
+      <circle
+        cx="33"
+        cy="33"
+        r="3.6"
+        fill="#3ddc84"
+        style={{
+          transformBox: "fill-box",
+          transformOrigin: "center",
+          animation: "cmssdtEyeColor 3.6s ease-in-out infinite, cmssdtBlinkLeft 5s ease-in-out infinite",
+        }}
+      />
+      <circle
+        cx="51"
+        cy="33"
+        r="3.6"
+        fill="#3ddc84"
+        style={{
+          transformBox: "fill-box",
+          transformOrigin: "center",
+          animation: "cmssdtEyeColor 3.6s ease-in-out infinite 0.4s, cmssdtBlinkRight 6.2s ease-in-out infinite 1.4s",
+        }}
+      />
+      <path
+        d="M31 44c3.4 3.6 7.2 5.4 11 5.4S49.6 47.6 53 44"
+        stroke="#3ddc84"
+        strokeWidth="2.4"
+        strokeLinecap="round"
+        fill="none"
+        style={{ animation: "cmssdtSmileFade 7s ease-in-out infinite" }}
+      />
+      <circle
+        cx="42"
+        cy="46"
+        r="3.2"
+        fill="none"
+        stroke="#3ddc84"
+        strokeWidth="2"
+        style={{ animation: "cmssdtOhFade 7s ease-in-out infinite" }}
+      />
+      <rect x="36" y="54" width="12" height="8" fill="#c7ccd1" />
+      <path
+        d="M18 96c0-16 10.7-26 24-26s24 10 24 26v6a4 4 0 0 1-4 4H22a4 4 0 0 1-4-4v-6Z"
+        fill="#e7e9ec"
+        stroke="#c7ccd1"
+      />
+      <path
+        d="M18 70l-8 22"
+        stroke="#c7ccd1"
+        strokeWidth="7"
+        strokeLinecap="round"
+        style={{ transformBox: "view-box", transformOrigin: "18px 70px", animation: "cmssdtArmLeft 4.5s ease-in-out infinite" }}
+      />
+      <path
+        d="M66 70l8 22"
+        stroke="#c7ccd1"
+        strokeWidth="7"
+        strokeLinecap="round"
+        style={{ transformBox: "view-box", transformOrigin: "66px 70px", animation: rightArmAnimation }}
+      />
+      <circle cx="42" cy="80" r="15" fill="#fff" stroke="#c7ccd1" strokeWidth="1.5" />
+      <defs>
+        <clipPath id="cmsBadgeClip">
+          <circle cx="42" cy="80" r="13.5" />
+        </clipPath>
+      </defs>
+      <image
+        href={CMS_LOGO_URL}
+        x="27"
+        y="65"
+        width="30"
+        height="30"
+        clipPath="url(#cmsBadgeClip)"
+        preserveAspectRatio="xMidYMid slice"
+      />
+    </svg>
+  );
+}
+
 export default function ChatWidget() {
   const [open, setOpen] = useState(false);
+  const [mascotVisible, setMascotVisible] = useState(false);
+  const [hasGreeted, setHasGreeted] = useState(false);
+  const [showGreeting, setShowGreeting] = useState(false);
+  const [showFarewell, setShowFarewell] = useState(false);
+  const [farewellRevealed, setFarewellRevealed] = useState(false);
   const [input, setInput] = useState("");
   const [panelWidth, setPanelWidth] = useState(DEFAULT_PANEL_WIDTH);
   const [isResizing, setIsResizing] = useState(false);
@@ -913,32 +1238,194 @@ export default function ChatWidget() {
     }
   };
 
+  const handleMascotHoverEnter = () => {
+    setMascotVisible(true);
+    if (!hasGreeted) {
+      setHasGreeted(true);
+      setShowGreeting(true);
+      window.setTimeout(() => setShowGreeting(false), 1800);
+    }
+  };
+
+  // Closing is a two-step handoff: the close tab (still attached to the
+  // open panel) reveals itself and waves bye first, and only once that
+  // finishes do we actually close the panel - setOpen(false) is what
+  // unmounts this tab and mounts the resting closed-state launcher, so the
+  // wave has to happen before that, not after.
+  const handleCloseClick = () => {
+    if (showFarewell) return;
+    // mascotVisible is shared with the closed-state launcher's own hover
+    // reveal, and clicking this close control necessarily means the mouse
+    // was just hovering it - left uncleared, that stale "true" would carry
+    // over and make the resting launcher mount already revealed instead of
+    // half-hidden like it should at rest.
+    setMascotVisible(false);
+    setShowFarewell(true);
+    setFarewellRevealed(false);
+    window.requestAnimationFrame(() => setFarewellRevealed(true));
+    window.setTimeout(() => {
+      setOpen(false);
+      setShowFarewell(false);
+      setFarewellRevealed(false);
+    }, 650);
+  };
+
+  const mascotRevealed = mascotVisible || farewellRevealed;
+  const mascotGesture = showGreeting ? "greet" : showFarewell ? "bye" : "idle";
+
   return (
     <>
-      {/* Toggle tab — always visible on the left edge, slides with the panel
-          so it doubles as the close handle when open. */}
-      <button
-        onClick={() => setOpen((o) => !o)}
-        title={open ? "Close chat" : "Ask the CMSSDT AI Chatbot"}
-        style={{
-          position: "fixed",
-          bottom: 24,
-          left: open ? panelWidth : 0,
-          zIndex: 1060,
-          width: 44,
-          height: 64,
-          border: "none",
-          borderRadius: "0 8px 8px 0",
-          background: "#0d6efd",
-          color: "#fff",
-          fontSize: 20,
-          boxShadow: "2px 0 8px rgba(0,0,0,0.2)",
-          transition: "left 0.3s ease",
-          cursor: "pointer",
-        }}
-      >
-        {open ? "‹" : "💬"}
-      </button>
+      <MascotKeyframes />
+
+      {/* Closed state: the launcher rests mostly tucked behind the left
+          edge (only its face peeking into view) so it barely intrudes on
+          whatever data sits beneath it, while its eyes keep blinking and
+          changing color so it reads as alive rather than a static icon.
+          Hovering slides it further out to fully reveal the face and collar
+          badge (and greets with a wave the first time); clicking it opens
+          the chat. It mounts back into this same resting, half-hidden state
+          once the close tab below has finished its own goodbye wave. */}
+      {!open && (
+        <button
+          onClick={() => setOpen(true)}
+          onMouseEnter={handleMascotHoverEnter}
+          onMouseLeave={() => setMascotVisible(false)}
+          title="Ask the CMSSDT AI Chatbot"
+          aria-label="Open the CMSSDT AI Chatbot"
+          style={{
+            position: "fixed",
+            bottom: 20,
+            left: 0,
+            zIndex: 1060,
+            border: "none",
+            background: "transparent",
+            padding: 0,
+            cursor: "pointer",
+            filter: "drop-shadow(0 4px 10px rgba(0,0,0,0.3))",
+            transform: mascotRevealed ? "translateX(-4px) scale(1.05)" : "translateX(-42px)",
+            transition: "transform 0.32s cubic-bezier(0.34, 1.56, 0.64, 1)",
+          }}
+        >
+          <div style={{ position: "relative", animation: "cmssdtBob 2.6s ease-in-out infinite" }}>
+            <ChatMascot gesture={mascotGesture} />
+            <OrbitParticles />
+            <BigBangBurst />
+          </div>
+        </button>
+      )}
+
+      {/* Open state: the close control is the same mascot again, scaled
+          down small and tucked half behind the panel's edge outside the
+          panel (panelWidth isn't a real clipping boundary the way the
+          window edge is, so an overflow-hidden clip window does the actual
+          hiding rather than a bare translateX). It sits permanently
+          revealed and grows slightly on hover as interactive feedback; the
+          "click to close chat" label - styled like a message from the bot
+          itself - only appears on that same hover, instead of sitting
+          there permanently. Clicking either the mascot or the label slides
+          the mascot fully out and plays a quick bye wave first (see
+          handleCloseClick), and only once that finishes does the panel
+          actually close. */}
+      {open && (
+        <>
+          <div
+            onMouseEnter={() => setMascotVisible(true)}
+            onMouseLeave={() => setMascotVisible(false)}
+            style={{
+              position: "fixed",
+              bottom: 10,
+              left: panelWidth,
+              zIndex: 1060,
+              width: 90,
+              height: 110,
+              overflow: "hidden",
+              transition: "left 0.3s ease",
+            }}
+          >
+            <button
+              onClick={handleCloseClick}
+              aria-label="Close chat"
+              style={{
+                position: "absolute",
+                left: 0,
+                top: 20,
+                border: "none",
+                background: "transparent",
+                padding: 0,
+                cursor: "pointer",
+                transform: mascotVisible ? "translateX(-4px) scale(1.15)" : "translateX(-28px) scale(1)",
+                transformOrigin: "left center",
+                transition: "transform 0.28s cubic-bezier(0.34, 1.56, 0.64, 1)",
+              }}
+            >
+              <div style={{ transform: "scale(0.6)", transformOrigin: "top left", filter: "drop-shadow(0 3px 8px rgba(0,0,0,0.3))" }}>
+                <div style={{ position: "relative", animation: "cmssdtBob 2.6s ease-in-out infinite" }}>
+                  <ChatMascot gesture={mascotGesture} />
+                  <OrbitParticles />
+                  <BigBangBurst />
+                </div>
+              </div>
+            </button>
+          </div>
+          <div
+            onClick={handleCloseClick}
+            onMouseEnter={() => setMascotVisible(true)}
+            onMouseLeave={() => setMascotVisible(false)}
+            style={{
+              position: "fixed",
+              bottom: 62,
+              left: panelWidth + 48,
+              zIndex: 1060,
+              padding: "7px 12px",
+              borderRadius: 10,
+              background: "#fff",
+              border: "1px solid #dee2e6",
+              color: "#374151",
+              fontSize: "12px",
+              fontWeight: 700,
+              letterSpacing: "0.03em",
+              boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
+              whiteSpace: "nowrap",
+              cursor: "pointer",
+              opacity: mascotVisible ? 1 : 0,
+              pointerEvents: mascotVisible ? "auto" : "none",
+              transition: "left 0.3s ease, opacity 0.2s ease",
+            }}
+          >
+            {/* Tail pointing back at the mascot's head height, so this
+                reads as the bot speaking rather than a generic floating
+                label - an outline-then-fill layering trick to keep the
+                border consistent all the way around, including the tail. */}
+            <div
+              style={{
+                position: "absolute",
+                left: -7,
+                top: "50%",
+                transform: "translateY(-50%)",
+                width: 0,
+                height: 0,
+                borderTop: "7px solid transparent",
+                borderBottom: "7px solid transparent",
+                borderRight: "7px solid #dee2e6",
+              }}
+            />
+            <div
+              style={{
+                position: "absolute",
+                left: -5,
+                top: "50%",
+                transform: "translateY(-50%)",
+                width: 0,
+                height: 0,
+                borderTop: "6px solid transparent",
+                borderBottom: "6px solid transparent",
+                borderRight: "6px solid #fff",
+              }}
+            />
+            CLOSE CHAT
+          </div>
+        </>
+      )}
 
       {/* Sliding panel */}
       <div
