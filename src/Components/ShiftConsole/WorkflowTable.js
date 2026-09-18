@@ -4,78 +4,7 @@ import { FaSearch } from "react-icons/fa";
 import { useReactTable, getCoreRowModel, getPaginationRowModel } from "@tanstack/react-table";
 import { renderInline } from "./shiftMarkdown";
 import { theme, TONE, TINT_COLORS, TINT_SWATCH_COLORS } from "./theme";
-
-// Matches one "[category] [cmssw PR #12345](https://.../pull/12345) (merged)" mention
-// from the backend's PR/Issue evidence cell (see server/api_server.py's
-// _workflow_evidence_cells) - lets each mention render as its own clickable, colored
-// badge instead of one flat, unlinked sentence where a merged PR, an open Issue, and a
-// closed PR all read identically.
-const EVIDENCE_MENTION_RE = /(?:\[([^\]]+)\]\s*)?\[cmssw\s+(PR|Issue)\s+#(\d+)\]\(([^)]+)\)\s+\(([^)]+)\)/g;
-
-// merged -> success (a real fix likely already landed); open -> warning (still live,
-// worth a look); anything else (closed-without-merge, unknown) -> neutral, since a
-// closed-unmerged PR/Issue carries much weaker signal than either of those two.
-function evidenceStateTone(state) {
-  const normalized = (state || "").toLowerCase();
-  if (normalized === "merged") return TONE.success;
-  if (normalized === "open") return TONE.warning;
-  return TONE.neutral;
-}
-
-const EvidenceBadge = ({ category, kind, number, url, state }) => {
-  const tone = evidenceStateTone(state);
-  return (
-    <a
-      href={url}
-      target="_blank"
-      rel="noopener noreferrer"
-      title={category ? `${category} — ${state} — opens on GitHub` : `${state} — opens on GitHub`}
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 5,
-        fontSize: "0.76rem",
-        fontWeight: 600,
-        padding: "2px 8px",
-        borderRadius: 999,
-        color: tone.fg,
-        background: tone.tint,
-        border: `1px solid ${tone.ring}`,
-        marginRight: 6,
-        marginBottom: 4,
-        whiteSpace: "nowrap",
-        textDecoration: "none",
-        cursor: "pointer",
-      }}
-    >
-      {kind} #{number}
-      <span style={{ opacity: 0.75, fontWeight: 500, textTransform: "capitalize" }}>{state}</span>
-    </a>
-  );
-};
-
-// Splits a PR/Issue evidence cell into per-mention badges plus the trailing
-// "relevance only, do not prove ..." caveat as a small muted caption. Falls back to
-// plain renderInline for anything that doesn't match the expected mention shape (e.g.
-// the "No PR/Issue in the imported graph..." message).
-function renderPrIssueEvidence(text) {
-  const trimmed = (text || "").trim();
-  if (!trimmed) return null;
-  const mentions = [...trimmed.matchAll(EVIDENCE_MENTION_RE)];
-  if (mentions.length === 0) return renderInline(trimmed);
-  const caveatIdx = trimmed.indexOf(" -- ");
-  const caveat = caveatIdx !== -1 ? trimmed.slice(caveatIdx + 4) : null;
-  return (
-    <div>
-      <div style={{ display: "flex", flexWrap: "wrap" }}>
-        {mentions.map((match, idx) => (
-          <EvidenceBadge key={idx} category={match[1]} kind={match[2]} number={match[3]} url={match[4]} state={match[5]} />
-        ))}
-      </div>
-      {caveat && <div style={{ color: theme.textMuted, fontSize: "0.76rem", marginTop: 2 }}>{caveat}</div>}
-    </div>
-  );
-}
+import { renderPrIssueEvidence } from "./prIssueEvidence";
 
 // Columns the shifter needs at a glance. Anything else the backend sends (recurrence,
 // PR evidence, stored-failure detail, ...) is treated as drill-down evidence and hidden

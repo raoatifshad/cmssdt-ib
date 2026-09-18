@@ -5,7 +5,7 @@ import { BsArrowRepeat, BsArrowRight, BsBoxArrowRight, BsChevronLeft } from "rea
 import { FaClipboardList } from "react-icons/fa";
 import { fetchShiftJson, fetchShiftSummaryWindows, isShiftLoginAvailable } from "./shiftApi";
 import { buildDigestDocument } from "./shiftMarkdown";
-import { aggregateStats, buildComparisonAlerts, normalizeBackendAlert } from "./digestStats";
+import { aggregateStats, buildComparisonAlerts } from "./digestStats";
 import { theme, CARD } from "./theme";
 import AlertsPanel from "./AlertsPanel";
 import DigestPanel from "./DigestPanel";
@@ -87,7 +87,9 @@ function releaseTimestamp(releaseName) {
 
 // A slow breathing dot next to the refresh timestamp - the "this view is live" signal
 // ops dashboards (Grafana, Datadog) use so a shifter trusts the data without re-reading it.
-const LivePulse = () => (
+// Reused (in red) on the Recent Problems "N firing" badge - same "this is actively
+// happening" language, not a separate visual vocabulary invented for that one badge.
+const LivePulse = ({ color = "#4ade80" }) => (
   <span style={{ position: "relative", display: "inline-flex", width: 8, height: 8, marginRight: 2 }}>
     <style>{`
       @keyframes shift-console-pulse {
@@ -96,8 +98,8 @@ const LivePulse = () => (
         100% { transform: scale(2.2); opacity: 0; }
       }
     `}</style>
-    <span style={{ position: "absolute", inset: 0, borderRadius: "50%", background: "#4ade80", animation: "shift-console-pulse 2s ease-out infinite" }} />
-    <span style={{ position: "absolute", inset: 0, borderRadius: "50%", background: "#4ade80" }} />
+    <span style={{ position: "absolute", inset: 0, borderRadius: "50%", background: color, animation: "shift-console-pulse 2s ease-out infinite" }} />
+    <span style={{ position: "absolute", inset: 0, borderRadius: "50%", background: color }} />
   </span>
 );
 
@@ -175,7 +177,6 @@ const ShiftConsolePage = () => {
 
   const [access, setAccess] = useState({ status: "checking", username: null });
   const [summary, setSummary] = useState({ markdown: "", loading: true, error: false, loadedAt: null });
-  const [alerts, setAlerts] = useState({ items: [], loading: true, error: false, loadedAt: null });
   const [arch, setArch] = useState("");
   const [pageTab, setPageTab] = useState("explorer");
   const [windows, setWindows] = useState({ items: [], loading: true, error: false });
@@ -245,18 +246,6 @@ const ShiftConsolePage = () => {
       });
   }, [handleAuthError]);
 
-  const loadAlerts = useCallback(() => {
-    setAlerts((prev) => ({ ...prev, loading: true, error: false }));
-    fetchShiftJson("/api/alerts/status")
-      .then((data) => {
-        setAlerts({ items: data.alerts || [], loading: false, error: false, loadedAt: new Date() });
-      })
-      .catch((err) => {
-        if (handleAuthError(err)) return;
-        setAlerts((prev) => ({ ...prev, loading: false, error: true }));
-      });
-  }, [handleAuthError]);
-
   useEffect(() => {
     fetchShiftJson("/api/shift-whoami")
       .then((data) => setAccess({ status: "ok", username: data.username }))
@@ -268,7 +257,6 @@ const ShiftConsolePage = () => {
   useEffect(() => {
     if (access.status !== "ok") return;
     loadSummary("");
-    loadAlerts();
     loadWindows();
     // Only re-run when access is (re)confirmed - arch/range changes have their own handlers.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -276,7 +264,6 @@ const ShiftConsolePage = () => {
 
   const handleRefresh = () => {
     loadSummary(arch, range);
-    loadAlerts();
   };
 
   const handleArchChange = (value) => {
@@ -297,21 +284,10 @@ const ShiftConsolePage = () => {
   const archOptions = useMemo(() => digestDoc.archs.map((a) => a.name.replace(/`/g, "")), [digestDoc]);
   const digestWindow = useMemo(() => parseDigestWindow(digestDoc.title), [digestDoc]);
   const scoreboardStats = useMemo(() => aggregateStats(digestDoc.archs), [digestDoc]);
-  // Errors the currently-displayed digest itself surfaces (default live window, or a
-  // custom from/to comparison) - folded into the Alerts panel alongside the backend's
-  // real-time rules below, since the backend has no notion of a shifter-picked comparison.
-  // "<from tag> → <to tag>" for whatever window the digest currently on screen covers -
-  // stamped onto every comparison alert (see buildComparisonAlerts) so it's never
-  // ambiguous which comparison produced a given Recent Problems row, especially once
-  // merged alongside backend regression alerts whose own window ("latest vs previous",
-  // always) can be a different pair of builds than this one at the same moment.
+  // "<from tag> → <to tag>" for whatever window the digest currently on screen covers - shown
+  // once above Recent Problems and again on the Shift Digest scoreboard, so both sections
+  // always name the exact comparison they're both reflecting.
   const windowLabel = digestWindow ? `${digestWindow.from} → ${digestWindow.to}` : null;
-  const comparisonAlerts = useMemo(() => buildComparisonAlerts(digestDoc.archs, windowLabel), [digestDoc, windowLabel]);
-  // The backend's *_regression rule types need reshaping into the same {category, details,
-  // ...} alert shape the digest-comparison alerts already use -- see normalizeBackendAlert.
-  // Every other rule_type passes through untouched.
-  const normalizedBackendAlerts = useMemo(() => alerts.items.map(normalizeBackendAlert), [alerts.items]);
-  const combinedAlerts = useMemo(() => [...comparisonAlerts, ...normalizedBackendAlerts], [comparisonAlerts, normalizedBackendAlerts]);
 
   // Scope the picker to the digest's own release cycle - without this, windows from every
   // cycle (e.g. CMSSW_20_1_X and CMSSW_16_1_X both building at 11:00) show up side by side
@@ -319,6 +295,15 @@ const ShiftConsolePage = () => {
   const currentCycle = useMemo(
     () => releaseCycle(digestWindow?.to) || releaseCycle(digestWindow?.from),
     [digestWindow]
+  );
+
+  // Recent Problems' only data source: synthesized from whatever digest is currently loaded
+  // (latest-vs-previous by default, or a shifter-picked window) - see buildComparisonAlerts.
+  // currentCycle is stamped onto each alert too, so a card reads "CMSSW_20_1_X" rather than
+  // making a shifter parse it back out of the two full release names in windowLabel.
+  const comparisonAlerts = useMemo(
+    () => buildComparisonAlerts(digestDoc.archs, windowLabel, currentCycle),
+    [digestDoc, windowLabel, currentCycle]
   );
 
   const windowOptions = useMemo(() => {
@@ -396,41 +381,47 @@ const ShiftConsolePage = () => {
           <BsChevronLeft size={12} /> Back to IB Dashboard
         </Button>
 
-        {/* Renders before the arch/date-picker header below on purpose - Recent Problems
-            is not filtered by anything selected down there (the backend alert half of it
-            never was; see windowLabel above for why even the digest-comparison half needs
-            its own per-row label now that both live in the same list). Sitting right below
-            a row of pickers made it read as if picking a different arch or window would
-            change what's "firing", which was never true for the backend half. */}
+        {/* Renders before the arch/date-picker header below on purpose - Recent Problems is
+            the highest-urgency signal a shifter needs first, so it stays pinned above the
+            controls that drive it rather than sitting below them. It's always in sync with
+            the current comparison (see comparisonAlerts above); the "Comparing" line here
+            names exactly which window that is, so a shifter never has to look elsewhere to
+            know what's being shown. */}
         <section style={{ ...CARD, marginBottom: 20 }}>
           <div className="d-flex align-items-center justify-content-between mb-3">
             <div>
               <h2 style={sectionHeading}>Recent Problems</h2>
               <div style={{ fontSize: "0.76rem", color: theme.textMuted, marginTop: 2 }}>
-                {/* Alerts only re-evaluate on page load or Refresh, never live (see
-                    ShiftConsolePage's own notes on loadAlerts) - a timestamp here is the
-                    difference between "current as of when I last checked" and looking like
-                    a live feed that updates on its own. */}
-                {alerts.loadedAt ? `Last checked ${alerts.loadedAt.toLocaleTimeString()}` : "Checking…"}
+                {windowLabel ? `Comparing ${windowLabel}` : "Loading…"}
+                {summary.loadedAt && ` · Last checked ${summary.loadedAt.toLocaleTimeString()}`}
               </div>
             </div>
-            {!alerts.loading && !alerts.error && (
+            {!summary.loading && !summary.error && (
               <span
                 style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 7,
                   fontSize: "0.72rem",
                   fontWeight: 700,
                   borderRadius: 999,
                   padding: "3px 10px",
-                  color: combinedAlerts.length ? "#f87171" : "#4ade80",
-                  background: combinedAlerts.length ? "rgba(239, 68, 68, 0.14)" : "rgba(34, 197, 94, 0.14)",
-                  border: `1px solid ${combinedAlerts.length ? "rgba(239, 68, 68, 0.4)" : "rgba(34, 197, 94, 0.35)"}`,
+                  color: comparisonAlerts.length ? "#f87171" : "#4ade80",
+                  background: comparisonAlerts.length ? "rgba(239, 68, 68, 0.14)" : "rgba(34, 197, 94, 0.14)",
+                  border: `1px solid ${comparisonAlerts.length ? "rgba(239, 68, 68, 0.4)" : "rgba(34, 197, 94, 0.35)"}`,
                 }}
               >
-                {combinedAlerts.length ? `${combinedAlerts.length} firing` : "All clear"}
+                {comparisonAlerts.length > 0 && <LivePulse color="#f87171" />}
+                {comparisonAlerts.length ? `${comparisonAlerts.length} firing` : "All clear"}
               </span>
             )}
           </div>
-          <AlertsPanel alerts={combinedAlerts} loading={alerts.loading} error={alerts.error} onRetry={loadAlerts} />
+          <AlertsPanel
+            alerts={comparisonAlerts}
+            loading={summary.loading}
+            error={summary.error}
+            onRetry={() => loadSummary(arch, range)}
+          />
         </section>
 
         <div style={{ ...CARD, marginBottom: 20 }}>
@@ -544,8 +535,8 @@ const ShiftConsolePage = () => {
           <ShiftScoreboard
             archCount={digestDoc.archs.length}
             stats={scoreboardStats}
-            alertsCount={combinedAlerts.length}
-            alertsLoading={alerts.loading}
+            windowLabel={windowLabel}
+            archs={digestDoc.archs}
           />
         )}
 

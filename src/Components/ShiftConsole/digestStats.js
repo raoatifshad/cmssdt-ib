@@ -1,4 +1,5 @@
 import { isEmptySection } from "./shiftMarkdown";
+import { parseEvidenceMentions } from "./prIssueEvidence";
 
 // Counts rows/items in a single #### section (a table or a bullet list) so severity can
 // be surfaced as a number without a shifter opening it.
@@ -63,10 +64,14 @@ export function aggregateStats(archs) {
 
 // Same column names WorkflowTable.js already looks for (PRIMARY_COLUMNS) - reusing them
 // here means an alert's detail line names the same fields the digest table itself shows.
-// Returns {name, detail} rather than one flattened string so AlertsPanel can render just
-// the identifier on one line and put everything else - including the human-readable Name
+// Returns {name, detail, prIssue} rather than one flattened string so AlertsPanel can render
+// just the identifier on one line and put everything else - including the human-readable Name
 // column - behind a click. A card with 20 full "id — name — errors, exit code, ..." lines
-// was taking over the whole Alerts panel.
+// was taking over the whole Alerts panel. `prIssue` (parsed from the same "PR/Issue Evidence"
+// cell WorkflowTable's evidence drawer already reads - see prIssueEvidence.js) is kept
+// structured rather than folded into `detail`'s text so AlertsPanel can show it as its own
+// always-visible badge instead of text buried behind a click - a shifter deciding whether a
+// failure is already known/tracked shouldn't have to expand every row to find out.
 //
 // The one-line label folds in architecture and sub-IB (build "type", e.g. ASAN/MULTIARCHS/
 // ROOT6 - see the CMSSDT release-matrix TYPE columns) so it's self-describing even read out
@@ -88,15 +93,21 @@ function tableRowSummary(header, row, archName) {
   const identifier = workflowId || cell("name") || row.filter(Boolean).join(" — ");
   const name = [identifier, archName, isSubIb ? variant : null].filter(Boolean).join(" · ");
   // Only fold "Name" into the detail line when it wasn't already used as the identifier above.
-  const detailFields = workflowId ? ["name", "errors", "exit code", "warnings", "status"] : ["errors", "exit code", "warnings", "status"];
-  const detail = detailFields
+  const detailFieldNames = workflowId ? ["name", "errors", "exit code", "warnings", "status"] : ["errors", "exit code", "warnings", "status"];
+  // Kept as one {field, label, value} per recognized column (rather than one pre-joined
+  // string) so a renderer can color each field's label differently - "Name"/"Errors"/
+  // "Exit code" all in the same flat muted-gray sentence read as one blob at a glance,
+  // exactly the fields a shifter most needs to tell apart. `detail` (the old flattened
+  // string) is kept alongside for callers that only need a plain-text rendering.
+  const detailFields = detailFieldNames
     .map((fieldName) => {
       const value = cell(fieldName);
-      return value ? `${header[normalized.indexOf(fieldName)]}: ${value}` : null;
+      return value ? { field: fieldName, label: header[normalized.indexOf(fieldName)], value } : null;
     })
-    .filter(Boolean)
-    .join(" · ");
-  return { name, detail };
+    .filter(Boolean);
+  const detail = detailFields.map(({ label, value }) => `${label}: ${value}`).join(" · ");
+  const prIssue = parseEvidenceMentions(cell("pr/issue evidence"));
+  return { name, detail, detailFields, prIssue: prIssue.length ? prIssue : null };
 }
 
 // One entry per row/bullet in a section, in the same order the Shift digest panel below
@@ -114,11 +125,9 @@ export const MAX_DETAIL_LINES = 6;
 
 // Per-category phrasing for a comparison alert's one-line subtitle - "N item(s) introduced"
 // read as generic filler once the row already has a category icon/title above it. Naming
-// what actually broke (workflow/unit test/build/AddOn test) reads better and lines up with
-// normalizeBackendAlert's "N newly failing since the previous build" wording for the
-// backend's *_regression alerts, so the two alert sources don't read inconsistently side by
-// side. "other" keeps the old generic phrasing as a fallback for any future digest section
-// classifySection doesn't recognize yet.
+// what actually broke (workflow/unit test/build/AddOn test) reads better. "other" keeps the
+// old generic phrasing as a fallback for any future digest section classifySection doesn't
+// recognize yet.
 const CATEGORY_ALERT_MESSAGE = {
   relval: (n) => `${n} workflow${n === 1 ? "" : "s"} newly failing`,
   utests: (n) => `${n} unit test${n === 1 ? "" : "s"} newly failing`,
@@ -128,52 +137,114 @@ const CATEGORY_ALERT_MESSAGE = {
   other: (n) => `${n} item${n === 1 ? "" : "s"} introduced`,
 };
 
-// Synthesizes alert-shaped entries - one per architecture per "new issue" section - from
-// the digest currently on screen, so a shifter browsing a custom from/to comparison sees
-// newly introduced errors surface in the Alerts panel automatically, with the actual
-// workflow/warning detail attached, not just a bare count. The backend's
-// /api/alerts/status only evaluates the live window; it has no notion of a manually
-// picked comparison, so this always runs client-side against whatever digest just loaded.
+// Display order for the one alert-per-category Recent Problems now produces - fixed rather
+// than "whichever arch/category combo happened to fail first", so the feed doesn't reorder
+// itself between comparisons just because a different architecture broke first this time.
+const CATEGORY_ORDER = ["relval", "builds", "utests", "addons", "clang", "other"];
+
+// Synthesizes one alert-shaped entry per category ("RelVal failure", "Unit test failures",
+// ...) from the digest currently on screen, merging every architecture's items for that
+// category into a single card's detail list instead of splitting them arch-by-arch - a
+// shifter cares that RelVals broke, not that it happened to be reported as two cards because
+// two architectures were affected. Each detail line still carries its own architecture (see
+// tableRowSummary), so the per-arch breakdown survives as a drill-down inside the one card.
+//
+// This is Recent Problems' only data source, so it always reflects whatever comparison is
+// currently loaded - latest-vs-previous by default, or a shifter-picked window - and can
+// never disagree with the Shift Digest scoreboard below it, which reads the same digest.
 //
 // `windowLabel` ("<from tag> → <to tag>", from the digest's own parsed title - see
-// ShiftConsolePage's parseDigestWindow) is stamped onto every alert this produces, the
-// same field normalizeBackendAlert's regression alerts carry - since both kinds of alert
-// end up merged into the one Recent Problems list, and a backend alert's own comparison
-// window ("latest vs previous", always) can be a genuinely different pair of builds than
-// whatever window is currently loaded here, every row needs to say which comparison
-// actually produced it rather than leaving that ambiguous.
-export function buildComparisonAlerts(archs, windowLabel) {
-  const alerts = [];
+// ShiftConsolePage's parseDigestWindow) is stamped onto every alert this produces so each
+// row's evidence is traceable back to the exact comparison that produced it. `releaseCycle`
+// (e.g. "CMSSW_20_1_X", from ShiftConsolePage's own releaseCycle() helper) is stamped
+// alongside it - the window label alone is two full release names, and a shifter scanning
+// Recent Problems wants "which cycle" at a glance without parsing them.
+export function buildComparisonAlerts(archs, windowLabel, releaseCycle) {
+  const grouped = new Map(); // category -> Map<archLabel, items[]>
   (archs || []).forEach((arch) => {
     // arch.name carries the backend markdown's literal backticks (e.g. "`el9_amd64_gcc14`",
-    // meant for renderInline elsewhere) - strip them here since the alert card title and
-    // each item's one-line label render as plain text, not markdown.
+    // meant for renderInline elsewhere) - strip them here since each item's one-line label
+    // renders as plain text, not markdown.
     const archLabel = arch.name.replace(/`/g, "");
     arch.sections.forEach((section) => {
       const isNewIssue = NEW_ISSUE_KEYS.some((key) => SECTION_PATTERNS[key].test(section.heading));
       if (!isNewIssue || isEmptySection(section)) return;
-      const allLines = sectionDetailLines(section, archLabel);
       const category = classifySection(section.heading);
-      alerts.push({
-        rule: { rule_id: `comparison-${arch.name}-${section.heading}`, name: section.heading },
-        // Which digest group this belongs to (relval/utests/builds/addons/clang) - lets
-        // AlertsPanel show a category icon and a human title ("RelVal failure") so a
-        // shifter can tell a RelVal alert from a Unit Test alert at a glance, without the
-        // severity color itself having to vary.
-        category,
-        // Kept separate from the message (rather than folded into rule.name, as before) so
-        // AlertsPanel can render it as its own small subtitle next to the category title -
-        // the architecture matters, but it isn't part of "what kind of problem is this".
-        archLabel,
-        windowLabel: windowLabel || null,
-        message: (CATEGORY_ALERT_MESSAGE[category] || CATEGORY_ALERT_MESSAGE.other)(allLines.length),
-        details: allLines.slice(0, MAX_DETAIL_LINES),
-        moreCount: Math.max(0, allLines.length - MAX_DETAIL_LINES),
-        evidence: { count: allLines.length },
-      });
+      if (!grouped.has(category)) grouped.set(category, new Map());
+      const byArch = grouped.get(category);
+      if (!byArch.has(archLabel)) byArch.set(archLabel, []);
+      // archName passed as "" - each item renders under its own arch's group heading (built
+      // below), so repeating the architecture inside every item's own label (see
+      // tableRowSummary) would just be noise. Same pattern categoryItemsByArch already uses.
+      byArch.get(archLabel).push(...sectionDetailLines(section, ""));
     });
   });
-  return alerts;
+
+  return CATEGORY_ORDER.filter((category) => grouped.has(category)).map((category) => {
+    const byArch = grouped.get(category);
+    const archLabels = [...byArch.keys()];
+    const totalCount = archLabels.reduce((n, archLabel) => n + byArch.get(archLabel).length, 0);
+
+    // MAX_DETAIL_LINES is a budget for the whole card, spent architecture-by-architecture in
+    // order - so a card spanning several architectures still shows a slice of each one
+    // instead of only ever expanding into the first.
+    let budget = MAX_DETAIL_LINES;
+    const archGroups = archLabels.map((archLabel) => {
+      const items = byArch.get(archLabel);
+      const shown = items.slice(0, budget);
+      budget = Math.max(0, budget - shown.length);
+      return { archLabel, items: shown, moreCount: items.length - shown.length };
+    });
+
+    return {
+      rule: { rule_id: `comparison-${category}`, name: category },
+      // Which digest group this belongs to (relval/utests/builds/addons/clang) - lets
+      // AlertsPanel show a category icon and a human title ("RelVal failure") so a
+      // shifter can tell a RelVal alert from a Unit Test alert at a glance, without the
+      // severity color itself having to vary.
+      category,
+      // Every architecture this category is failing on, shown as its own chip on the card
+      // (rather than collapsed to a count) - and as its own drill-down group in archGroups.
+      archLabels,
+      releaseCycle: releaseCycle || null,
+      windowLabel: windowLabel || null,
+      message: (CATEGORY_ALERT_MESSAGE[category] || CATEGORY_ALERT_MESSAGE.other)(totalCount),
+      archGroups,
+      evidence: { count: totalCount },
+    };
+  });
+}
+
+// category+side -> the SECTION_PATTERNS key that covers it - lets categoryItemsByArch look
+// up the right section without a shifter-facing category name ("relval"/"builds"/...)
+// needing to know SECTION_PATTERNS' internal key spelling.
+const CATEGORY_SECTION_KEYS = {
+  relval: { new: "newFailing", resolved: "resolved" },
+  builds: { new: "newFailingBuilds", resolved: "resolvedBuilds" },
+  utests: { new: "newFailingUtests", resolved: "resolvedUtests" },
+  addons: { new: "newFailingAddons", resolved: "resolvedAddons" },
+  clang: { new: "newWarnings", resolved: "resolvedWarnings" },
+};
+
+// The actual workflow/build/test names for one category+side (e.g. "builds"/"new"),
+// grouped by architecture - archStats()/aggregateStats() only ever return a count for
+// this same data, which is fine for a page-wide total but not enough once a shifter drills
+// into a single scoreboard tile and actually wants to know *which* workflow. One entry per
+// architecture that has at least one item; architectures with nothing in this category are
+// left out rather than rendered as an empty group.
+export function categoryItemsByArch(archs, category, side) {
+  const sectionKey = CATEGORY_SECTION_KEYS[category]?.[side];
+  if (!sectionKey) return [];
+  const pattern = SECTION_PATTERNS[sectionKey];
+  return (archs || [])
+    .map((arch) => {
+      const section = findSection(arch, pattern);
+      if (!section || isEmptySection(section)) return null;
+      // archName passed as "" - the group header this feeds already names the architecture,
+      // so repeating it inside every item's own label (see tableRowSummary) would be noise.
+      return { name: arch.name.replace(/`/g, ""), items: sectionDetailLines(section, "") };
+    })
+    .filter(Boolean);
 }
 
 // Groups a section's #### heading into the card it belongs under. "other" is a fallback
@@ -186,66 +257,4 @@ export function classifySection(heading) {
   if (/unit test/i.test(heading)) return "utests";
   if (/addon/i.test(heading)) return "addons";
   return "other";
-}
-
-// Maps the backend's three dynamic "*_regression" AlertRule types (graph/alerts.py --
-// each fires one combined alert covering DEFAULT + every sub-IB, diffed against its own
-// previous build) onto the same category keys classifySection uses, so they get the same
-// icon/title treatment as the digest-synthesized alerts instead of a generic bell.
-// build_regression covers both Build and AddOn badges in one check (see find_build_regressions
-// in graph/tools.py) -- there's no way to split it into two categories up front, so it's
-// grouped under "builds" and each item's own `kind` ("build"/"addon") still shows per-row.
-const REGRESSION_RULE_CATEGORY = {
-  relval_regression: "relval",
-  unittest_regression: "utests",
-  build_regression: "builds",
-};
-
-// One evidence.newly_failing item -> the same {name, detail} shape tableRowSummary produces,
-// so AlertDetailItem renders it identically to a digest-comparison alert's rows.
-function regressionItemLine(item) {
-  const variantLabel = item.variant && item.variant.toLowerCase() !== "primary" ? item.variant : null;
-  if ("workflow_id" in item) {
-    return { name: [item.workflow_id, item.arch, variantLabel].filter(Boolean).join(" · "), detail: item.name || "" };
-  }
-  if ("kind" in item) {
-    return { name: [item.kind, item.arch, variantLabel].filter(Boolean).join(" · "), detail: "" };
-  }
-  // unittest_regression items: {name, arch, variant}
-  return { name: [item.name, item.arch, variantLabel].filter(Boolean).join(" · "), detail: "" };
-}
-
-// GET /api/alerts/status returns {rule, message, evidence} straight from evaluate_rules() --
-// fine as-is for the 5 older fixed-tag rule types (they already read well as a single message
-// line), but the 3 dynamic regression types pack up to 20 items into one long message string
-// with no category/details, so AlertsPanel can't give them the same icon + expandable
-// per-workflow list the digest-comparison alerts get. This reshapes just those three into
-// that same alert shape; every other rule_type passes through unchanged.
-export function normalizeBackendAlert(alert) {
-  const ruleType = alert.rule?.rule_type;
-  const category = REGRESSION_RULE_CATEGORY[ruleType];
-  if (!category) return alert;
-
-  const evidence = alert.evidence || {};
-  const items = evidence.newly_failing || [];
-  // archLabel and windowLabel are two different things, not one field doing double duty:
-  // archLabel is "which architecture" (only meaningful if the rule itself was created
-  // scoped to one via params.arch - most aren't, they cover every architecture at once, so
-  // this is usually null); windowLabel is "which two builds were actually diffed" - always
-  // "latest vs previous" globally for a backend rule, which can be a genuinely different
-  // pair of tags than whatever window a shifter currently has loaded on the Shift digest
-  // tab. AlertsPanel renders both, distinctly, so a shifter never has to guess which
-  // comparison produced a given row.
-  const archLabel = alert.rule?.params?.arch || null;
-  const windowLabel = evidence.previous_tag && evidence.latest_tag ? `${evidence.previous_tag} → ${evidence.latest_tag}` : null;
-
-  return {
-    ...alert,
-    category,
-    archLabel,
-    windowLabel,
-    message: `${evidence.count ?? items.length} newly failing since the previous build`,
-    details: items.slice(0, MAX_DETAIL_LINES).map(regressionItemLine),
-    moreCount: Math.max(0, items.length - MAX_DETAIL_LINES),
-  };
 }
