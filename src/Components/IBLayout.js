@@ -49,9 +49,18 @@ class IBLayout extends Component {
             isUnauthorized: false,
             isNetworkError: false,
             //showAllPullRequests: true
-            showAllPullRequests: localStorage.getItem(PR_PREF_KEY) === null ?  true : localStorage.getItem(PR_PREF_KEY) === "true"            
+            showAllPullRequests: localStorage.getItem(PR_PREF_KEY) === null ?  true : localStorage.getItem(PR_PREF_KEY) === "true",
+            // Set by a click on a release+arch mention in the Chat widget (see ChatWidget.js)
+            // - {que, date, flavor, arch}. Always a fresh object (see requestHighlight below)
+            // so re-clicking the same mention twice in a row still re-triggers the scroll/
+            // highlight in IBGroups.js, which only reacts when the prop reference changes.
+            highlightTarget: null
         };
     }
+
+    requestHighlight = (target) => {
+        this.setState({ highlightTarget: { ...target } });
+    };
     toggleAllPullRequests = () => {
         this.setState((prevState) => {
             const next = !prevState.showAllPullRequests;
@@ -278,7 +287,7 @@ class IBLayout extends Component {
     }
 
     render() {
-        const { releaseQue, toLinks, nameList, all_release_queues, loading, error, isUnauthorized, isNetworkError, showAllPullRequests } = this.state;
+        const { releaseQue, toLinks, nameList, all_release_queues, loading, error, isUnauthorized, isNetworkError, showAllPullRequests, highlightTarget } = this.state;
 
         const filteredData = this.filterListToShow();
 
@@ -307,8 +316,9 @@ class IBLayout extends Component {
                     isUnauthorized={isUnauthorized}
                     isNetworkError={isNetworkError}
                     loadingText={`Loading ${releaseQue || 'release'} builds...`}
+                    highlightTarget={highlightTarget}
                 />
-                <ChatWidget />
+                <ChatWidget currentReleaseQue={releaseQue} onHighlightRequest={this.requestHighlight} />
             </div>
         );
     }

@@ -208,19 +208,26 @@
   }
  
 }
- /* CMSDIST dropdown above tab content */
+ /* CMSDIST dropdown above tab content - only needs to clear ordinary page chrome
+    (e.g. ComparisonTable.js's sticky .name-column, z-index: 10), not other dropdown
+    menus. 1040 was higher than Bootstrap's own default .dropdown-menu z-index (1000),
+    so this dropdown/toggle was rendering on top of any *other* open dropdown on the
+    same page (RelVals/Test/RNTuple/... all use the unmodified Bootstrap default) -
+    confirmed live via screenshot: the "CMS Dist" toggle showing through the middle of
+    an open "Test" dropdown's menu. 50 clears normal content with room to spare while
+    staying well under 1000. */
 .compact-dropdown-tab {
   position: relative;
-  z-index: 1040;
+  z-index: 50;
 }
 
 .compact-dropdown-tab .dropdown-menu {
-  z-index: 1040 !important;
+  z-index: 50 !important;
   position: absolute !important;
 }
 
 #cmsdist-dropdown + .dropdown-menu {
-  z-index: 1040 !important;
+  z-index: 50 !important;
 }
 
 /* prevent clipping */

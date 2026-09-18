@@ -1,6 +1,6 @@
 import React, { Component } from 'react';
 import IBGroupFrame from './IBGroupFrame';
-import { groupAndTransformIBDataList } from '../../Utils/processing';
+import { groupAndTransformIBDataList, getInfoFromRelease } from '../../Utils/processing';
 import PropTypes from 'prop-types';
 import { Spinner } from 'react-bootstrap';
 import {
@@ -61,7 +61,13 @@ class IBGroups extends Component {
         ]),
         isUnauthorized: PropTypes.bool,
         isNetworkError: PropTypes.bool,
-        loadingText: PropTypes.string
+        loadingText: PropTypes.string,
+        highlightTarget: PropTypes.shape({
+            que: PropTypes.string,
+            date: PropTypes.string,
+            flavor: PropTypes.string,
+            arch: PropTypes.string
+        })
     };
 
     static defaultProps = {
@@ -72,7 +78,8 @@ class IBGroups extends Component {
         error: null,
         isUnauthorized: false,
         isNetworkError: false,
-        loadingText: 'Loading builds...'
+        loadingText: 'Loading builds...',
+        highlightTarget: null
     };
 
     constructor(props) {
@@ -150,6 +157,12 @@ class IBGroups extends Component {
         return null;
     }
 
+    componentDidUpdate(prevProps) {
+        if (this.props.highlightTarget && this.props.highlightTarget !== prevProps.highlightTarget) {
+            this.jumpToHighlightTarget(this.props.highlightTarget);
+        }
+    }
+
     toggleNavigator = () => {
         this.setState((prevState) => ({
             showNavigator: !prevState.showNavigator,
@@ -174,6 +187,32 @@ class IBGroups extends Component {
             window.scrollTo({ top: y, behavior: 'smooth' });
             this.setState({ showNavigator: false });
         }
+    };
+
+    // A chat mention (see ChatWidget.js) names a release+date - not a groupKey, which is an
+    // internal id built from the group's own first record (see getGroupKey) that a caller
+    // outside this component has no way to reconstruct. Resolves the mention to the matching
+    // date-group instead, by re-deriving que/date from each group's own release_name (the
+    // same getInfoFromRelease() parse ComparisonTable.js already uses for the same purpose),
+    // then reuses the existing scrollToGroup/groupRefs navigation rather than adding a
+    // parallel scroll mechanism. Un-collapses the group first if needed - a collapsed
+    // IBGroupFrame doesn't render its ComparisonTable at all (see IBGroupFrame.js), so
+    // there'd be nothing for ComparisonTable's own highlight/scrollIntoView to find.
+    jumpToHighlightTarget = (target) => {
+        const groups = this.getFilteredData();
+        const groupIndex = groups.findIndex((group) => {
+            const info = getInfoFromRelease(group?.[0]?.release_name || '');
+            return info && info[1] === target.que && info[3] === target.date;
+        });
+        if (groupIndex === -1) return;
+
+        const groupKey = this.getGroupKey(groups[groupIndex], groupIndex);
+        this.setState(
+            (prevState) => ({
+                collapsedGroups: { ...prevState.collapsedGroups, [groupKey]: false }
+            }),
+            () => this.scrollToGroup(groupKey)
+        );
     };
 
    findPrInGroups = () => {
@@ -550,7 +589,8 @@ class IBGroups extends Component {
             error,
             isUnauthorized,
             isNetworkError,
-            showAllPullRequests
+            showAllPullRequests,
+            highlightTarget
         } = this.props;
 
         const filteredData = this.getFilteredData();
@@ -630,6 +670,7 @@ class IBGroups extends Component {
                            <IBGroupFrame
                                 IBGroup={IBGroup}
                                 releaseQue={releaseQue}
+                                highlightTarget={highlightTarget}
                                 expandAllCommits={
                                     showAllPullRequests || this.state.matchedPrGroupKey === groupKey
                                 }

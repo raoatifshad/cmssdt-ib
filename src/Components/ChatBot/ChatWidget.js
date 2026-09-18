@@ -16,6 +16,8 @@ import { Button, Form, Spinner } from "react-bootstrap";
 import DOMPurify from "dompurify";
 import { marked } from "marked";
 import { useChat } from "../../context/ChatContext";
+import { config } from "../../config";
+import { getInfoFromRelease } from "../../Utils/processing";
 
 const MIN_PANEL_WIDTH = 280;
 // Below this, a chat input column stops being usable at all - but it's
@@ -42,6 +44,75 @@ const escapeHtml = (value) => String(value).replace(/[&<>'"]/g, (character) => (
 }[character]));
 
 const EXIT_CODE_PATTERN = /^(-?\d+)\s*\(([^)]+)\)\s*$/;
+
+// Matches one "CMSSW_20_1_X_2026-09-17-2300 (primary, el9_amd64_gcc16)" mention - a full
+// build tag (primary or a variant like ASAN/ROOT6, which bake the flavor into the tag itself
+// as "..._ASAN_X_..."/"..._ROOT6_X_...") immediately followed by its "(variant, arch)"
+// parenthetical - exactly how the chatbot's own "Most recent failing builds: TAG (variant,
+// arch), TAG (variant, arch), ..." answers list them. Every backtick position is optional
+// (`?) because the chatbot wraps technical tokens like the tag and the architecture in
+// markdown code spans (confirmed elsewhere in its own answers, e.g. "the selected `relval`
+// request") - without tolerating them here, a real answer's backticks sit right where this
+// pattern expects "(" or ")" next, and the whole mention silently fails to match.
+const RELEASE_ARCH_MENTION_RE =
+  /`?(CMSSW_\d+_\d+(?:_[A-Za-z0-9]+)?_X_\d{4}-\d{2}-\d{2}-\d{4})`?\s*\(([^,()]+?)\s*,\s*`?([A-Za-z0-9_]+)`?\)`?/g;
+
+// Turns each release+architecture mention the chatbot names in prose into a link straight
+// into this app's own RelVal Explorer for that exact release/date/architecture - reusing
+// getInfoFromRelease + urls.newRelValsSpecific, the same helpers ComparisonTable.js already
+// uses to build this same link from a release name + architecture elsewhere in the app - so
+// a shifter reading "537.0 ... failing in CMSSW_20_1_ASAN_X_2026-09-16-2300 (ASAN,
+// el9_amd64_gcc14)" can click straight into that build/arch instead of copying the tag and
+// finding it by hand. The chatbot has no page of its own to link to; this always points back
+// into the existing IB pages. Runs on the raw markdown, before `marked` parses it, so the
+// inserted `[text](url)` is just more markdown - no separate HTML-injection step needed.
+function linkifyReleaseMentions(markdown) {
+  if (!markdown) return markdown;
+  return markdown.replace(RELEASE_ARCH_MENTION_RE, (whole, tag, variantLabel, arch) => {
+    const info = getInfoFromRelease(tag);
+    if (!info) return whole;
+    const [, que, flavor, date] = info;
+    const href = config.urls.newRelValsSpecific(que, date, flavor, arch, "&selectedStatus=failed");
+    return `[${whole}](${href})`;
+  });
+}
+
+// Reverse of the href config.urls.newRelValsSpecific builds above - lets a click handler
+// recover {que, date, flavor, arch} from a link's own href rather than re-parsing the link's
+// visible text (which would break the moment the display wording changes independently of
+// the URL). Only ever matches hrefs this same file generated (see linkifyReleaseMentions).
+const RELVAL_LINK_HREF_RE = /^#\/relVal\/([^/]+)\/([^/?]+)\?(.*)$/;
+function parseRelValLinkHref(href) {
+  const match = RELVAL_LINK_HREF_RE.exec(href || "");
+  if (!match) return null;
+  const [, que, date, queryString] = match;
+  const params = new URLSearchParams(queryString);
+  const arch = params.get("selectedArchs");
+  const flavor = params.get("selectedFlavors");
+  if (!arch || !flavor) return null;
+  return { que, date, flavor, arch };
+}
+
+// Clicking a release+architecture mention should jump straight to that column on the IB
+// Dashboard *in place* when it's already on screen, rather than navigating away to the
+// RelVal Explorer and losing this chat panel (which only lives inside the IB Dashboard
+// layout - see IBLayout.js). Delegated onto each message's content container (rather than
+// attaching a real onClick per link) because the message body is raw sanitized HTML from
+// `renderMarkdownToHtml`, not React elements - there's nothing else to attach a handler to.
+// Only intercepts clicks when both (a) the href is one of ours (parseRelValLinkHref matches)
+// and (b) it's for the release cycle currently open (`currentReleaseQue`, e.g.
+// "CMSSW_20_1_X"); anything else - a different release cycle, or `onHighlightRequest` not
+// wired up - falls through to the link's normal href, which is always a real, working
+// RelVal Explorer URL regardless (graceful degradation, not a special case here).
+function handleMessageContentClick(event, currentReleaseQue, onHighlightRequest) {
+  if (!onHighlightRequest) return;
+  const anchor = event.target.closest("a");
+  if (!anchor) return;
+  const target = parseRelValLinkHref(anchor.getAttribute("href"));
+  if (!target || `${target.que}_X` !== currentReleaseQue) return;
+  event.preventDefault();
+  onHighlightRequest(target);
+}
 
 // Same PRIMARY_COLUMNS set as the Shift Console's WorkflowTable.js - digest tables use
 // this exact fixed set of at-a-glance headers; anything else is drill-down evidence.
@@ -102,8 +173,9 @@ function styledDigestCellHtml(headerLabel, renderedText) {
   return renderedText;
 }
 
-const renderMarkdownToHtml = (markdown) => {
-  if (!markdown) return "";
+const renderMarkdownToHtml = (rawMarkdown) => {
+  if (!rawMarkdown) return "";
+  const markdown = linkifyReleaseMentions(rawMarkdown);
 
   const renderer = new marked.Renderer();
   renderer.html = (rawHtmlFromModel) => escapeHtml(rawHtmlFromModel);
@@ -882,7 +954,7 @@ function ChatMascot({ gesture = "idle" }) {
   );
 }
 
-export default function ChatWidget() {
+export default function ChatWidget({ currentReleaseQue, onHighlightRequest } = {}) {
   const [open, setOpen] = useState(false);
   const [mascotVisible, setMascotVisible] = useState(false);
   const [hasGreeted, setHasGreeted] = useState(false);
@@ -1743,22 +1815,24 @@ export default function ChatWidget() {
                         const split = m.role === "assistant" ? splitContentAroundTable(content) : null;
                         const tableData = split ? extractTableData(split.tableMarkdown) : null;
 
+                        const onContentClick = (e) => handleMessageContentClick(e, currentReleaseQue, onHighlightRequest);
+
                         if (split && tableData && isGroupableTable(tableData.headers, tableData.rows)) {
                           return (
                             <>
                               {split.intro.trim() && (
-                                <div className="chat-message-content" dangerouslySetInnerHTML={{ __html: renderMarkdownToHtml(split.intro) }} />
+                                <div className="chat-message-content" onClick={onContentClick} dangerouslySetInnerHTML={{ __html: renderMarkdownToHtml(split.intro) }} />
                               )}
                               <GroupedResultTable headers={tableData.headers} rows={tableData.rows} />
                               {split.outro.trim() && (
-                                <div className="chat-message-content" dangerouslySetInnerHTML={{ __html: renderMarkdownToHtml(split.outro) }} />
+                                <div className="chat-message-content" onClick={onContentClick} dangerouslySetInnerHTML={{ __html: renderMarkdownToHtml(split.outro) }} />
                               )}
                             </>
                           );
                         }
 
                         return (
-                          <div className="chat-message-content" dangerouslySetInnerHTML={{
+                          <div className="chat-message-content" onClick={onContentClick} dangerouslySetInnerHTML={{
                             __html: renderMarkdownToHtml(content),
                           }} />
                         );

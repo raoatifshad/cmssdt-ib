@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
 import { OverlayTrigger, Table, Tooltip } from "react-bootstrap";
 import {
@@ -326,14 +326,6 @@ function renderTooltip(cellContent, tooltipContent, tooltipId = 'tooltip-status'
   );
 }
 
-function renderCell(cellInfo, key) {
-  return (
-    <td key={key} className="align-middle p-1" style={{ textAlign: 'center', verticalAlign: 'middle' }}>
-      {cellInfo}
-    </td>
-  );
-}
-
 function renderSphere({ status = "secondary", value, icon, link, tooltipContent, details, type, tooltipId } = {}) {
   const style = statusStyles[status] || statusStyles.secondary;
   const displayValue = value !== undefined ? value : '';
@@ -448,7 +440,19 @@ const copyText = (text) => {
   }
 };
 
-const ComparisonTable = ({ data = [], releaseQue }) => {
+// Accent for the one column a shifter jumped to from a chat mention (see ChatWidget.js's
+// click delegation). Deliberately THEME.info's blue rather than a severity color (danger/
+// warning/success already mean something specific everywhere else on this page) or plain
+// grey (THEME.secondary/THEME.primaryLight - the same grey this table already falls back to
+// for any arch-part token it has no color for, e.g. "aarch64"/"gcc15" - reusing it for
+// "selected" made a real selection visually indistinguishable from an unrelated existing
+// arch cell, per the design review screenshot). Blue instead ties into the same "this is the
+// active thing" language the release-cycle pill in Navigation.js already uses.
+const HIGHLIGHT_ACCENT = '#2563eb';
+const HIGHLIGHT_BG = 'rgba(37, 99, 235, 0.14)';
+const HIGHLIGHT_GLOW = `0 0 0 3px rgba(37, 99, 235, 0.25), 0 4px 10px -2px rgba(37, 99, 235, 0.45)`;
+
+const ComparisonTable = ({ data = [], releaseQue, highlightTarget = null }) => {
   const [copiedText, setCopiedText] = useState(null);
   const { getActiveArchsForQue = () => [], getColorsSchemeForQue = () => ({}) } = useShowArch();
 
@@ -479,6 +483,85 @@ const ComparisonTable = ({ data = [], releaseQue }) => {
     () => getAllActiveArchitecturesFromIBGroupByFlavor(data, activeArchs),
     [data, activeArchs]
   );
+
+  // Resolves a chat-originated highlight request (que/date/flavor/arch - see ChatWidget.js)
+  // against THIS table's own release+date. `item.flavor` (from getAllActiveArchitecturesFrom
+  // IBGroupByFlavor) is the full "<que>_<flavor>" release-queue string (e.g.
+  // "CMSSW_20_1_ASAN_X"), exactly what `${que}_${highlightTarget.flavor}` reconstructs since
+  // highlightTarget.flavor is the same internal flavor token getInfoFromRelease returns (e.g.
+  // "ASAN_X", or "X" for primary) - so no separate lookup table is needed to bridge the two.
+  const highlightMatch = useMemo(() => {
+    if (!highlightTarget || highlightTarget.que !== que || highlightTarget.date !== date) return null;
+    return { flavorKey: `${que}_${highlightTarget.flavor}`, arch: highlightTarget.arch };
+  }, [highlightTarget, que, date]);
+
+  // This table can be wider than the viewport (a flavor group per column-group, several
+  // architectures each) with its own horizontal scroll (Card.Body's overflowX: 'auto' in
+  // IBGroupFrame.js) - vertically scrolling the right date-block into view (IBGroups.js's
+  // existing scrollToGroup) says nothing about whether the matched column is scrolled into
+  // view horizontally, so that's handled here instead, local to the one table that has it.
+  const highlightedColRef = useRef(null);
+  useEffect(() => {
+    if (highlightMatch && highlightedColRef.current) {
+      highlightedColRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+    }
+  }, [highlightMatch]);
+
+  // One entry per real column this table renders, in the exact order the header rows and
+  // every body row (renderRowCells, plus the hand-rolled builds row) all iterate archsByIb -
+  // needed to paint the WHOLE matched column, header down through every metric row, via a
+  // <colgroup> rather than threading the highlight through renderCell/renderRowCells/
+  // showGeneralResults/showRelValsResults (many call sites, none of which set a `<td>`
+  // background of their own - confirmed by reading renderCell - so a <col> background paints
+  // straight through to every cell in that column for free, header-only highlighting alone
+  // was too easy to miss in a wide table with a dozen+ flavor groups).
+  const flattenedColumns = useMemo(
+    () => archsByIb.flatMap((item, pos) => (item.archs || []).map((arch) => ({ pos, arch, flavor: item.flavor }))),
+    [archsByIb]
+  );
+
+  // Moved in from module scope (was a plain top-level function) so it can close over
+  // highlightMatch/archsByIb - the one thing every body cell in this table renders through
+  // (every renderRowCells branch, showGeneralResults, showRelValsResults, and the hand-rolled
+  // builds row all end here), so it's the one place that can paint the matched column's cells
+  // without threading highlight state through each of those call sites individually. `key` is
+  // always `${resultType}-${pos}-${arch}[-suffix]` (confirmed by reading every call site) -
+  // arch strings use underscores, never hyphens, so splitting on "-" reliably recovers pos/
+  // arch.
+  //
+  // The column edges are drawn with inset box-shadows, not a real `border` - every cell in
+  // this table already carries a stylesheet `!important` border (see the <style> block below:
+  // `.table > :not(caption) > * > * { border: 1px solid ... !important }`), and an
+  // `!important` author rule always beats a plain inline style, inline or not, regardless of
+  // specificity - a plain inline `borderLeft`/`borderRight` here would just silently lose. A
+  // box-shadow is an unrelated property that rule never touches, so it always shows.
+  // Also brightens the row-to-row divider (inset top/bottom) - the existing `!important`
+  // border is a light grey, and light grey on top of a light blue tint has too little
+  // contrast to still read as a row boundary, which is what made a highlighted column look
+  // like one solid block instead of 5 separate rows.
+  const renderCell = (cellInfo, key) => {
+    const [, posStr, archStr] = key.split('-');
+    const pos = Number(posStr);
+    const isHighlighted =
+      !!highlightMatch && archsByIb[pos]?.flavor === highlightMatch.flavorKey && archStr === highlightMatch.arch;
+
+    return (
+      <td
+        key={key}
+        className="align-middle p-1"
+        style={{
+          textAlign: 'center',
+          verticalAlign: 'middle',
+          backgroundColor: isHighlighted ? HIGHLIGHT_BG : undefined,
+          boxShadow: isHighlighted
+            ? `inset 3px 0 0 0 ${HIGHLIGHT_ACCENT}, inset -3px 0 0 0 ${HIGHLIGHT_ACCENT}, inset 0 1px 0 0 rgba(255,255,255,0.9), inset 0 -1px 0 0 rgba(255,255,255,0.9)`
+            : undefined
+        }}
+      >
+        {cellInfo}
+      </td>
+    );
+  };
 
   const renderRowCells = ({ resultType, ifWarning, ifError, ifFailed, ifPassed, ifUnknown }) => {
     return data.map((ib, pos) => {
@@ -837,6 +920,16 @@ const ComparisonTable = ({ data = [], releaseQue }) => {
                 opacity: 1;
               }
 
+              .ib-highlight-col {
+                animation: ib-highlight-pulse 1.4s ease-out 1;
+              }
+
+              @keyframes ib-highlight-pulse {
+                0% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.55); }
+                70% { box-shadow: 0 0 0 12px rgba(37, 99, 235, 0); }
+                100% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0); }
+              }
+
               @media (max-width: 768px) {
                 .name-column {
                   width: 42px !important;
@@ -875,6 +968,20 @@ const ComparisonTable = ({ data = [], releaseQue }) => {
             className="mb-0 align-middle"
             style={{ fontSize: '0.78rem' }}
           >
+            <colgroup>
+              <col />
+              {flattenedColumns.map(({ pos, arch, flavor }) => (
+                <col
+                  key={`col-${pos}-${arch}`}
+                  style={{
+                    backgroundColor:
+                      highlightMatch && flavor === highlightMatch.flavorKey && arch === highlightMatch.arch
+                        ? HIGHLIGHT_BG
+                        : undefined
+                  }}
+                />
+              ))}
+            </colgroup>
             <thead>
               <tr>
                 <th className="name-column" rowSpan={2} style={{ verticalAlign: 'middle' }}>
@@ -896,8 +1003,17 @@ const ComparisonTable = ({ data = [], releaseQue }) => {
                     ? `https://github.com/cms-sw/cmssw/tree/${releaseNameToCopy}`
                     : null;
 
+                  const isFlavorHighlighted =
+                    !!highlightMatch && item.flavor === highlightMatch.flavorKey && item.archs.includes(highlightMatch.arch);
+
+                  // Every flavor badge otherwise renders identically (FLAVOR_CARDS[0], the
+                  // same slate gradient for all of them - there's only one entry in that
+                  // array). The matched one gets recolored blue instead of just the
+                  // underline below - the underline alone reads as "look further down", the
+                  // badge itself changing color is what actually catches the eye scanning a
+                  // row of a dozen identical grey pills.
                   const flavorCardStyle = {
-                    background: FLAVOR_CARDS[0].bg,
+                    background: isFlavorHighlighted ? `linear-gradient(135deg, #3b82f6 0%, ${HIGHLIGHT_ACCENT} 100%)` : FLAVOR_CARDS[0].bg,
                     color: FLAVOR_CARDS[0].text,
                     padding: '4px 8px',
                     borderRadius: '4px',
@@ -907,7 +1023,8 @@ const ComparisonTable = ({ data = [], releaseQue }) => {
                     fontSize: '0.82rem',
                     fontWeight: 800,
                     margin: '0 auto',
-                    cursor: flavorLink ? 'pointer' : 'default'
+                    cursor: flavorLink ? 'pointer' : 'default',
+                    boxShadow: isFlavorHighlighted ? HIGHLIGHT_GLOW : undefined
                   };
 
                   return (
@@ -917,7 +1034,16 @@ const ComparisonTable = ({ data = [], releaseQue }) => {
                       style={{
                         textAlign: 'center',
                         padding: '6px 2px',
-                        backgroundColor: THEME.light
+                        backgroundColor: THEME.light,
+                        // An inset shadow, not a real border - the stylesheet below has its
+                        // own `!important` bottom-border rule on every cell in this header
+                        // row (`.table thead tr:first-child th`), which would otherwise win
+                        // over a plain inline border. Kept as a thin underline rather than a
+                        // full fill: this spans the WHOLE flavor group (colSpan), and a solid
+                        // fill here reads as "the entire group is selected", when really only
+                        // one architecture within it is - see the arch-level `<th>` below for
+                        // the actual, precise highlight.
+                        boxShadow: isFlavorHighlighted ? `inset 0 -4px 0 0 ${HIGHLIGHT_ACCENT}` : undefined
                       }}
                     >
                       <div className="flavor-card-wrapper">
@@ -1025,12 +1151,21 @@ const ComparisonTable = ({ data = [], releaseQue }) => {
                     <div>{archStack}</div>
                   );
 
+                  const isArchHighlighted = !!highlightMatch && item.flavor === highlightMatch.flavorKey && arch === highlightMatch.arch;
+
                   return (
                     <th
                       key={`arch-${pos}-${arch}`}
+                      ref={isArchHighlighted ? highlightedColRef : undefined}
+                      className={isArchHighlighted ? 'ib-highlight-col' : undefined}
                       style={{
                         padding: '3px 2px',
-                        backgroundColor: THEME.light,
+                        backgroundColor: isArchHighlighted ? HIGHLIGHT_BG : THEME.light,
+                        // Not a `border` - every cell here already carries a stylesheet
+                        // `!important` border (see the shared <style> block below), which
+                        // always beats a plain inline border regardless of specificity. The
+                        // glow's `0 0 0 3px` ring is what actually reads as this cell's outline.
+                        boxShadow: isArchHighlighted ? HIGHLIGHT_GLOW : undefined,
                         minWidth: '72px'
                       }}
                     >
@@ -1146,7 +1281,7 @@ const ComparisonTable = ({ data = [], releaseQue }) => {
                     <a
                       href={urls.newRelVals(que, date)}
                       className="text-decoration-none d-flex align-items-center justify-content-center"
-                      style={{ color: THEME.primary, height: '100%' }}
+                      style={{ color: THEME.text.primary, height: '100%' }}
                       title="RelVal"
                     >
                       <span className="type-label-desktop">RelVal</span>
@@ -1236,7 +1371,13 @@ const ComparisonTable = ({ data = [], releaseQue }) => {
 
 ComparisonTable.propTypes = {
   data: PropTypes.array.isRequired,
-  releaseQue: PropTypes.string.isRequired
+  releaseQue: PropTypes.string.isRequired,
+  highlightTarget: PropTypes.shape({
+    que: PropTypes.string,
+    date: PropTypes.string,
+    flavor: PropTypes.string,
+    arch: PropTypes.string
+  })
 };
 
 export default ComparisonTable;

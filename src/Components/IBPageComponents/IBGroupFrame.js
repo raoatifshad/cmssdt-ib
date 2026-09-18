@@ -117,6 +117,7 @@ class IBGroupFrame extends PureComponent {
                         <ComparisonTable
                             data={IBGroup}
                             releaseQue={releaseQue}
+                            highlightTarget={this.props.highlightTarget}
                         />
                     );
                 }
