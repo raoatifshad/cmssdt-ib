@@ -17,10 +17,10 @@ import { BADGE_ONLY_CATEGORIES, BadgeOnlyList, countChip, pillStyle } from "./Te
 // *is* the same row. Rendered once, below both ReleaseColumns, not duplicated per side.
 
 function relvalIdentity(row) {
-  return `${row.arch}|${row.variant}|${row.workflow_id}`;
+  return `${row.arch || ""}|${row.variant}|${row.workflow_id}`;
 }
 function unittestIdentity(row) {
-  return `${row.arch}|${row.variant}|${row.name}`;
+  return `${row.arch || ""}|${row.variant}|${row.name}`;
 }
 
 function mergePairs(itemsA, itemsB, identityFn) {

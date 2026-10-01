@@ -130,6 +130,14 @@ const ReleaseStatusGrid = ({ comparison, archs: sharedArchs, failing, onHover, o
           </tbody>
         </table>
       </div>
+      {/* This grid comes from the static flavor JSON, which has no variant field - so it can
+          legitimately disagree with the per-variant failures listed below. Say so up front. */}
+      <div
+        title="Counts in this grid come from the primary build only. The RelVal/Unit test tables below (and the hover bubbles) also include each sub-IB variant's own failures, so their counts can be higher."
+        style={{ marginTop: 6, fontSize: "0.72rem", color: theme.textMuted, fontStyle: "italic" }}
+      >
+        Primary build only; see the tables below for sub-IB variant failures.
+      </div>
     </div>
   );
 };
