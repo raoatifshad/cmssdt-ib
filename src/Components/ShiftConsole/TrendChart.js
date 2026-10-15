@@ -11,13 +11,22 @@ const PAD = { top: 16, right: 16, bottom: 32, left: 34 };
 const plotW = WIDTH - PAD.left - PAD.right;
 const plotH = HEIGHT - PAD.top - PAD.bottom;
 
+// null = no result for that build (not run yet): the line breaks there instead of dropping to 0
 function buildPath(values, maxY, n) {
+  let pen = "M";
   return values
     .map((v, i) => {
+      if (v === null || v === undefined) {
+        pen = "M";
+        return "";
+      }
       const x = PAD.left + (n <= 1 ? 0 : (i / (n - 1)) * plotW);
       const y = PAD.top + plotH - (maxY === 0 ? 0 : (v / maxY) * plotH);
-      return `${i === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`;
+      const seg = `${pen}${x.toFixed(1)},${y.toFixed(1)}`;
+      pen = "L";
+      return seg;
     })
+    .filter(Boolean)
     .join(" ");
 }
 
@@ -66,11 +75,12 @@ const TrendChart = ({ points, series }) => {
         })}
 
         {series.map((s) => (
-          <path key={s.key} d={buildPath(points.map((p) => p[s.key] || 0), maxY, n)} fill="none" stroke={s.color} strokeWidth={2} />
+          <path key={s.key} d={buildPath(points.map((p) => p[s.key]), maxY, n)} fill="none" stroke={s.color} strokeWidth={2} />
         ))}
 
         {series.map((s) =>
           points.map((p, i) => {
+            if (p[s.key] === null || p[s.key] === undefined) return null;
             const x = PAD.left + (n <= 1 ? 0 : (i / (n - 1)) * plotW);
             const y = PAD.top + plotH - (maxY === 0 ? 0 : ((p[s.key] || 0) / maxY) * plotH);
             return <circle key={`${s.key}-${i}`} cx={x} cy={y} r={2.5} fill={s.color} />;

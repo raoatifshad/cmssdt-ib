@@ -212,6 +212,9 @@ const TrendPanel = ({ structure, selection }) => {
                 , {points[0].label} → {points[points.length - 1].label}
               </>
             )}
+            {points.some((p) => Object.values(p).some((v) => v === null)) && (
+              <> · a gap in a line means that build has no results for it yet (not run), not zero failures</>
+            )}
           </div>
           <TrendChart points={points} series={TREND_SERIES} />
         </div>

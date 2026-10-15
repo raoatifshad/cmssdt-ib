@@ -121,7 +121,11 @@ export function buildTrendSeries(builds) {
   return builds.map((comparison) => {
     const point = { release_name: comparison.release_name, label: shortBuildLabel(comparison.release_name) };
     TREND_CATEGORIES.forEach((cat) => {
-      point[cat] = categoryFailingTotal(comparison, cat);
+      // no result on any architecture = not run yet: a gap in the line, not a 0
+      // (found 2026-10-15: CMSSW_20_1_X_2026-10-15-0900 plotted as "0 RelVal failures")
+      const archs = comparison.tests_archs || [];
+      const notRun = archs.length > 0 && archs.every((arch) => summarizeArchCell(comparison, cat, arch).status === "missing");
+      point[cat] = notRun ? null : categoryFailingTotal(comparison, cat);
     });
     return point;
   });

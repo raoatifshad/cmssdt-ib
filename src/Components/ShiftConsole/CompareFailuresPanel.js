@@ -179,6 +179,15 @@ const BadgeOnlyCompare = ({ comparisonA, comparisonB, archs, categoryKey, label,
 // release(s) contributed it, which grid the hover came from doesn't change which rows
 // light up, only its category/arch do.
 const CompareFailuresPanel = ({ comparisonA, comparisonB, archs, failingA, failingB, highlight, labelA, labelB }) => {
+  // A release whose static entry has no result for the category on any architecture (the
+  // grid's "–") hasn't run it yet: "no failing in either" would read as both clean.
+  const notRun = (comparison, key) =>
+    (archs || []).length > 0 && (archs || []).every((arch) => summarizeArchCell(comparison, key, arch).status === "missing");
+  const compareEmptyText = (key, plural, label) => {
+    const missing = [[labelA, comparisonA], [labelB, comparisonB]].filter(([, c]) => notRun(c, key)).map(([l]) => l);
+    if (missing.length) return `No failing ${plural} in the imported results -- ${label} results are not available yet for ${missing.join(" and ")}.`;
+    return `No failing ${plural} in either release.`;
+  };
   const [active, setActive] = useState("relvals");
   const columnLabels = { "in a": labelA, "in b": labelB };
 
@@ -231,7 +240,7 @@ const CompareFailuresPanel = ({ comparisonA, comparisonB, archs, failingA, faili
             <WorkflowTable light columnLabels={columnLabels} {...buildMergedRelvalTable(relvalPairs, highlightArch("relvals"), labelA, labelB)} />
           </>
         ) : (
-          <PanelState kind="empty" text="No failing RelVals in either release." />
+          <PanelState kind="empty" text={compareEmptyText("relvals", "RelVals", "RelVal")} />
         ))}
 
       {active === "utests" &&
@@ -241,7 +250,7 @@ const CompareFailuresPanel = ({ comparisonA, comparisonB, archs, failingA, faili
             <WorkflowTable light columnLabels={columnLabels} {...buildMergedUnittestTable(unittestPairs, highlightArch("utests"), labelA, labelB)} />
           </>
         ) : (
-          <PanelState kind="empty" text="No failing unit tests in either release." />
+          <PanelState kind="empty" text={compareEmptyText("utests", "unit tests", "Unit-test")} />
         ))}
 
       {active === "builds" && (
