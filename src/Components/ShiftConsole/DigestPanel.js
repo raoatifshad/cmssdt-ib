@@ -6,7 +6,7 @@ import { archStats, classifySection } from "./digestStats";
 import { theme, TONE, CATEGORY } from "./theme";
 import ArchMatrix from "./ArchMatrix";
 import WorkflowTable from "./WorkflowTable";
-import PanelState from "./PanelState";
+import PanelState, { SUMMARY_SLOW_TEXT, SUMMARY_TIMEOUT_TEXT } from "./PanelState";
 
 const SectionBlock = ({ block }) => {
   if (block.type === "table") {
@@ -161,8 +161,8 @@ const DigestPanel = ({ markdown, loading, error, onRetry }) => {
     setActiveIdx(0);
   }, [doc.archs.length, markdown]);
 
-  if (loading) return <PanelState kind="loading" text="Loading shift digest…" />;
-  if (error) return <PanelState kind="error" text="Couldn't load the shift digest." onRetry={onRetry} />;
+  if (loading) return <PanelState kind="loading" text="Loading shift digest…" slowText={SUMMARY_SLOW_TEXT} />;
+  if (error) return <PanelState kind="error" text={error === "timeout" ? SUMMARY_TIMEOUT_TEXT : "Couldn't load the shift digest."} onRetry={onRetry} />;
 
   if (!doc.archs.length) {
     return <PanelState kind="empty" text="No digest data available." />;

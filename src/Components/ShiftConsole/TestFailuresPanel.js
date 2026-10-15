@@ -6,6 +6,7 @@ import { summarizeArchCell } from "./releaseExplorerData";
 import PanelState from "./PanelState";
 import WorkflowTable from "./WorkflowTable";
 import { exceptionOf } from "./exceptionText";
+import { failedTestsCellOf, testsCellOf } from "./unitTestDetail";
 
 // Same five categories/icons/order as ReleaseStatusGrid's own CATEGORIES - a shifter who
 // just read "RelVal 4" in the grid above sees the identical icon down here. Exported for
@@ -91,13 +92,23 @@ function buildRelvalTable(items, highlightArch) {
   });
   return { header, rows };
 }
+// Tests ("2 failed / 26") and Failed tests come from the backend's per-row total /
+// logs_imported / failed_tests - each column only when the backend sent that field at all.
 function buildUnittestTable(items, highlightArch) {
-  const header = ["Name", "Errors", "Architecture", "Variant"];
+  const withTests = items.some((u) => u.total != null);
+  const withFailedTests = items.some((u) => failedTestsCellOf(u) !== undefined);
+  const header = ["Name", "Errors"];
+  if (withTests) header.push("Tests");
+  header.push("Architecture", "Variant");
+  if (withFailedTests) header.push("Failed tests");
   const withException = items.some((u) => exceptionOf(u));
   if (withException) header.push("Exception");
   if (highlightArch) header.push("Highlight");
   const rows = items.map((u) => {
-    const row = [u.name || "", String(u.errors ?? ""), u.arch || "", u.variant || "primary"];
+    const row = [u.name || "", String(u.errors ?? "")];
+    if (withTests) row.push(testsCellOf(u));
+    row.push(u.arch || "", u.variant || "primary");
+    if (withFailedTests) row.push(failedTestsCellOf(u) || "");
     if (withException) row.push(exceptionOf(u));
     if (highlightArch) row.push(u.arch === highlightArch ? "1" : "");
     return row;

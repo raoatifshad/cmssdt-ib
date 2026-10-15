@@ -2,8 +2,25 @@
 // host in prod, see vite.config.js) so the CERN SSO session cookie is sent automatically.
 // Never call these with an absolute cross-origin URL - unlike the chat widget, the session
 // cookie won't carry over.
-export async function fetchShiftJson(path) {
-  const res = await fetch(path, { credentials: "include" });
+//
+// `timeoutMs` (optional) gives up client-side with err.kind = "timeout"; a 502/504 from the
+// proxy/gateway in front of the backend means the same thing.
+export async function fetchShiftJson(path, { timeoutMs } = {}) {
+  const controller = timeoutMs ? new AbortController() : null;
+  const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
+  let res;
+  try {
+    res = await fetch(path, { credentials: "include", signal: controller?.signal });
+  } catch (e) {
+    if (e?.name === "AbortError") {
+      const err = new Error("Request took too long");
+      err.kind = "timeout";
+      throw err;
+    }
+    throw e;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 
   if (res.status === 401) {
     const err = new Error("No shift-console session");
@@ -18,6 +35,11 @@ export async function fetchShiftJson(path) {
   if (res.status === 503) {
     const err = new Error("CERN SSO not configured");
     err.kind = "unavailable";
+    throw err;
+  }
+  if (res.status === 502 || res.status === 504) {
+    const err = new Error(`Gateway timeout (${res.status})`);
+    err.kind = "timeout";
     throw err;
   }
   if (!res.ok) {

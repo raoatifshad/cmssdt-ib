@@ -69,6 +69,8 @@ function parseDigestWindow(title) {
 // "CMSSW_20_1_X_2026-08-19-2300" -> "CMSSW_20_1_X" - different release cycles build on the
 // same schedule, so /api/shift-summary/windows can return several cycles sharing one
 // timestamp. Only one cycle's windows make sense to pick between at a time.
+const SUMMARY_TIMEOUT_MS = 240000;
+
 function releaseCycle(releaseName) {
   const match = /^(.*)_\d{4}-\d{2}-\d{2}-\d{4}$/.exec(releaseName || "");
   return match ? match[1] : null;
@@ -190,6 +192,9 @@ const ShiftConsolePage = () => {
   // Only the latest test-log request may land - a slow response for a previous window or
   // arch must not overwrite the one now on screen.
   const logRequestId = useRef(0);
+  // Same guard for the digest itself: some windows take ~2 minutes, and a shifter who picks
+  // another window meanwhile must not have the slow one land on top of it.
+  const summaryRequestId = useRef(0);
 
   // 403 can appear on any request, not just at login - the allowlist is re-checked every
   // time. Every fetch below routes its failure through this so it's handled the same way
@@ -231,13 +236,17 @@ const ShiftConsolePage = () => {
         params.set("to", rangeValue.to);
       }
       const qs = params.toString() ? `?${params.toString()}` : "";
-      fetchShiftJson(`/api/shift-summary${qs}`)
+      const requestId = ++summaryRequestId.current;
+      // Generous on purpose: the slowest real windows take ~2 min. error is "timeout" (not
+      // just true) so the panels can say "took too long" instead of a generic failure.
+      fetchShiftJson(`/api/shift-summary${qs}`, { timeoutMs: SUMMARY_TIMEOUT_MS })
         .then((data) => {
+          if (requestId !== summaryRequestId.current) return;
           setSummary({ markdown: data.markdown || "", loading: false, error: false, loadedAt: new Date() });
         })
         .catch((err) => {
-          if (handleAuthError(err)) return;
-          setSummary((prev) => ({ ...prev, loading: false, error: true }));
+          if (requestId !== summaryRequestId.current || handleAuthError(err)) return;
+          setSummary((prev) => ({ ...prev, loading: false, error: err?.kind === "timeout" ? "timeout" : true }));
         });
     },
     [handleAuthError]

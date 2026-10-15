@@ -6,11 +6,14 @@ import { renderInline } from "./shiftMarkdown";
 import { theme, TONE, TINT_COLORS, FAIL_DOT_COLOR } from "./theme";
 import { renderPrIssueEvidence } from "./prIssueEvidence";
 import { ExceptionBlock, EXCEPTION_COLUMNS } from "./exceptionText";
+import { FailedTestsList } from "./unitTestDetail";
 
 // Columns the shifter needs at a glance. Anything else the backend sends (recurrence,
 // PR evidence, stored-failure detail, ...) is treated as drill-down evidence and hidden
 // behind a per-row "Show evidence" toggle instead of always-open prose.
-const PRIMARY_COLUMNS = ["workflow", "name", "errors", "exit code", "architecture", "variant", "warnings", "status", "in a", "in b"];
+// "tests" is a unit-test row's "2 failed / 26" - short, and the first thing that says how much
+// of the package broke; its "Failed tests"/"Exception"/"Recurrence" go to the drawer.
+const PRIMARY_COLUMNS = ["workflow", "name", "errors", "tests", "exit code", "architecture", "variant", "warnings", "status", "in a", "in b"];
 const MONOSPACE_COLUMNS = ["workflow", "exit code", "architecture"];
 // "In A"/"In B" (CompareFailuresPanel's merged table) always read as small centered dots,
 // never as text/numeric-aligned cells - a single-letter header would otherwise be enough
@@ -533,6 +536,8 @@ const WorkflowTable = ({ header, rows, light = false, columnLabels = {} }) => {
                                         ? renderPrIssueEvidence(row[idx])
                                         : EXCEPTION_COLUMNS.includes(normalizedHeader[idx])
                                         ? <ExceptionBlock text={row[idx]} light={light} />
+                                        : normalizedHeader[idx] === "failed tests"
+                                        ? <FailedTestsList value={row[idx]} light={light} />
                                         : renderInline(row[idx])}
                                     </div>
                                   </React.Fragment>

@@ -94,7 +94,7 @@ function tableRowSummary(header, row, archName) {
   const identifier = workflowId || cell("name") || row.filter(Boolean).join(" — ");
   const name = [identifier, archName, isSubIb ? variant : null].filter(Boolean).join(" · ");
   // Only fold "Name" into the detail line when it wasn't already used as the identifier above.
-  const detailFieldNames = workflowId ? ["name", "errors", "exit code", "warnings", "status"] : ["errors", "exit code", "warnings", "status"];
+  const detailFieldNames = workflowId ? ["name", "errors", "exit code", "warnings", "status"] : ["errors", "tests", "exit code", "warnings", "status"];
   // Kept as one {field, label, value} per recognized column (rather than one pre-joined
   // string) so a renderer can color each field's label differently - "Name"/"Errors"/
   // "Exit code" all in the same flat muted-gray sentence read as one blob at a glance,
@@ -111,7 +111,12 @@ function tableRowSummary(header, row, archName) {
   // The captured exception/first-error text, kept apart from detailFields - it's multi-line
   // log output, not a short "Label: value" field, and gets its own block in AlertsPanel.
   const exception = EXCEPTION_COLUMNS.map(cell).find(Boolean) || "";
-  return { name, detail, detailFields, prIssue: prIssue.length ? prIssue : null, exception };
+  // Unit-test rows: which tests inside the package failed (names or a fixed "no logs" note,
+  // see unitTestDetail.js), and the "Failed in N prior build(s)..." history - both
+  // multi-word prose, so AlertsPanel gives each its own line rather than a "Label: value" slot.
+  const failedTests = cell("failed tests");
+  const recurrence = cell("recurrence");
+  return { name, detail, detailFields, prIssue: prIssue.length ? prIssue : null, exception, failedTests, recurrence };
 }
 
 // One entry per row/bullet in a section, in the same order the Shift digest panel below

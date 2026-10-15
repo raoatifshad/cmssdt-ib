@@ -4,9 +4,10 @@ import { BsBell, BsCheckCircle, BsChevronRight, BsFileEarmarkText } from "react-
 import { FaCode, FaCubes, FaLayerGroup, FaPlus, FaVial } from "react-icons/fa";
 import { renderInline } from "./shiftMarkdown";
 import { theme, TONE, CATEGORY } from "./theme";
-import PanelState from "./PanelState";
+import PanelState, { SUMMARY_SLOW_TEXT, SUMMARY_TIMEOUT_TEXT } from "./PanelState";
 import { EvidenceBadge, EvidenceSummaryBadge } from "./prIssueEvidence";
 import { ExceptionBlock, exceptionHeadline } from "./exceptionText";
+import { FailedTestsList } from "./unitTestDetail";
 
 // Same category -> icon mapping as DigestPanel's GROUP_META, and the same icons as the
 // main IB Dashboard's own "Row Icons" legend (Navigation.js) - Builds/Unit/RelVal/AddOn/
@@ -58,7 +59,7 @@ const AlertDetailItem = ({ item }) => {
   // The exception's first line is previewed on the collapsed row itself (what actually
   // broke is the first thing a shifter wants), with the full text behind the same click.
   const headline = exceptionHeadline(item.exception);
-  const hasDetail = item.detailFields?.length > 0 || hasPrIssue || !!headline;
+  const hasDetail = item.detailFields?.length > 0 || hasPrIssue || !!headline || !!item.failedTests || !!item.recurrence;
 
   return (
     <li style={{ listStyle: "none" }}>
@@ -123,7 +124,18 @@ const AlertDetailItem = ({ item }) => {
                 ))}
               </div>
             )}
+            {item.failedTests && (
+              <div style={{ display: "flex", gap: 6, marginTop: 3, color: theme.textSecondary }}>
+                <span style={{ color: DETAIL_FIELD_COLOR.name, fontWeight: 700, flexShrink: 0 }}>Failed tests:</span>
+                <FailedTestsList value={item.failedTests} />
+              </div>
+            )}
             {headline && <ExceptionBlock text={item.exception} raw={item.rawException} />}
+            {item.recurrence && (
+              <div style={{ marginTop: 3, color: theme.textMuted }}>
+                <span style={{ fontWeight: 700 }}>Recurrence:</span> {renderInline(item.recurrence)}
+              </div>
+            )}
           </div>
         </Collapse>
       )}
@@ -299,8 +311,8 @@ const AlertRow = ({ alert }) => {
 };
 
 const AlertsPanel = ({ alerts, loading, error, onRetry }) => {
-  if (loading) return <PanelState kind="loading" text="Checking alerts…" />;
-  if (error) return <PanelState kind="error" text="Couldn't load alert status." onRetry={onRetry} />;
+  if (loading) return <PanelState kind="loading" text="Checking alerts…" slowText={SUMMARY_SLOW_TEXT} />;
+  if (error) return <PanelState kind="error" text={error === "timeout" ? SUMMARY_TIMEOUT_TEXT : "Couldn't load alert status."} onRetry={onRetry} />;
 
   if (!alerts || alerts.length === 0) {
     return (
