@@ -1,11 +1,12 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button, Spinner } from "react-bootstrap";
 import { BsArrowRepeat, BsArrowRight, BsBoxArrowRight, BsChevronLeft } from "react-icons/bs";
 import { FaClipboardList } from "react-icons/fa";
-import { fetchShiftJson, fetchShiftSummaryWindows, isShiftLoginAvailable } from "./shiftApi";
+import { fetchShiftJson, fetchShiftSummaryWindows, fetchTestLogProblems, isShiftLoginAvailable } from "./shiftApi";
 import { buildDigestDocument } from "./shiftMarkdown";
 import { aggregateStats, buildComparisonAlerts } from "./digestStats";
+import { buildLogProblemsAlert } from "./logProblems";
 import { theme, CARD } from "./theme";
 import AlertsPanel from "./AlertsPanel";
 import DigestPanel from "./DigestPanel";
@@ -183,6 +184,12 @@ const ShiftConsolePage = () => {
   // Both empty = "current" (default backend window). A custom window is only requested
   // once both sides are picked, so we never send a lone from/to and hit the backend's 422.
   const [range, setRange] = useState({ from: "", to: "" });
+  const [logProblems, setLogProblems] = useState({ data: null, loading: false, error: false });
+  // Bumped by Refresh so the test-log fetch re-runs even when the window itself is unchanged.
+  const [refreshCount, setRefreshCount] = useState(0);
+  // Only the latest test-log request may land - a slow response for a previous window or
+  // arch must not overwrite the one now on screen.
+  const logRequestId = useRef(0);
 
   // 403 can appear on any request, not just at login - the allowlist is re-checked every
   // time. Every fetch below routes its failure through this so it's handled the same way
@@ -264,6 +271,7 @@ const ShiftConsolePage = () => {
 
   const handleRefresh = () => {
     loadSummary(arch, range);
+    setRefreshCount((n) => n + 1);
   };
 
   const handleArchChange = (value) => {
@@ -304,6 +312,67 @@ const ShiftConsolePage = () => {
   const comparisonAlerts = useMemo(
     () => buildComparisonAlerts(digestDoc.archs, windowLabel, currentCycle),
     [digestDoc, windowLabel, currentCycle]
+  );
+
+  // /api/test-log-problems for the exact window the digest on screen covers (its parsed
+  // title, not the pickers - those only settle once a pick has a matching digest), so the
+  // hidden-problems tile always describes the same comparison as the tiles next to it.
+  const logFrom = digestWindow?.from;
+  const logTo = digestWindow?.to;
+  const loadLogProblems = useCallback(() => {
+    if (!logFrom || !logTo) return;
+    const requestId = ++logRequestId.current;
+    setLogProblems((prev) => ({ ...prev, loading: true, error: false }));
+    fetchTestLogProblems(logFrom, logTo, arch)
+      .then((data) => {
+        if (requestId === logRequestId.current) setLogProblems({ data, loading: false, error: false });
+      })
+      .catch((err) => {
+        if (requestId !== logRequestId.current || handleAuthError(err)) return;
+        setLogProblems({ data: null, loading: false, error: true });
+      });
+  }, [logFrom, logTo, arch, handleAuthError]);
+
+  useEffect(() => {
+    loadLogProblems();
+  }, [loadLogProblems, refreshCount]);
+
+  // Shown only for data matching the current window+arch - while a new window loads, the
+  // previous window's alert must not linger as if it applied to this one.
+  const logProblemsCurrent =
+    logProblems.data && logProblems.data.from === logFrom && logProblems.data.to === logTo && (logProblems.data.arch || "") === arch;
+  // When the window's "to" build has no test logs yet, the backend names the newest build
+  // that does (coverage.newest_imported, a bare timestamp). Offer that build's own window -
+  // same cycle, from = the window just before it - so the shifter can see real numbers
+  // instead of a dead tile. null when there's nothing to jump to (no newest build, it's the
+  // window already on screen, or no earlier build in the picker list to compare against).
+  const logJumpTarget = useMemo(() => {
+    const newest = logProblemsCurrent && !logProblems.data.coverage?.to_imported ? logProblems.data.coverage?.newest_imported : null;
+    if (!newest || !currentCycle) return null;
+    const to = `${currentCycle}_${newest}`;
+    if (to === logTo) return null;
+    const from = windows.items
+      .map((w) => w.release_name)
+      .filter((name) => releaseCycle(name) === currentCycle && releaseTimestamp(name) < newest)
+      .sort()
+      .pop();
+    return from ? { from, to, newest } : null;
+  }, [logProblemsCurrent, logProblems.data, currentCycle, logTo, windows.items]);
+
+  const handleLogJump = useCallback(() => {
+    if (!logJumpTarget) return;
+    const next = { from: logJumpTarget.from, to: logJumpTarget.to };
+    setRange(next);
+    loadSummary(arch, next);
+  }, [logJumpTarget, arch, loadSummary]);
+
+  const logProblemsAlert = useMemo(
+    () => (logProblemsCurrent ? buildLogProblemsAlert(logProblems.data, windowLabel, currentCycle) : null),
+    [logProblemsCurrent, logProblems.data, windowLabel, currentCycle]
+  );
+  const allAlerts = useMemo(
+    () => (logProblemsAlert ? [...comparisonAlerts, logProblemsAlert] : comparisonAlerts),
+    [comparisonAlerts, logProblemsAlert]
   );
 
   const windowOptions = useMemo(() => {
@@ -406,18 +475,18 @@ const ShiftConsolePage = () => {
                   fontWeight: 700,
                   borderRadius: 999,
                   padding: "3px 10px",
-                  color: comparisonAlerts.length ? "#f87171" : "#4ade80",
-                  background: comparisonAlerts.length ? "rgba(239, 68, 68, 0.14)" : "rgba(34, 197, 94, 0.14)",
-                  border: `1px solid ${comparisonAlerts.length ? "rgba(239, 68, 68, 0.4)" : "rgba(34, 197, 94, 0.35)"}`,
+                  color: allAlerts.length ? "#f87171" : "#4ade80",
+                  background: allAlerts.length ? "rgba(239, 68, 68, 0.14)" : "rgba(34, 197, 94, 0.14)",
+                  border: `1px solid ${allAlerts.length ? "rgba(239, 68, 68, 0.4)" : "rgba(34, 197, 94, 0.35)"}`,
                 }}
               >
-                {comparisonAlerts.length > 0 && <LivePulse color="#f87171" />}
-                {comparisonAlerts.length ? `${comparisonAlerts.length} firing` : "All clear"}
+                {allAlerts.length > 0 && <LivePulse color="#f87171" />}
+                {allAlerts.length ? `${allAlerts.length} firing` : "All clear"}
               </span>
             )}
           </div>
           <AlertsPanel
-            alerts={comparisonAlerts}
+            alerts={allAlerts}
             loading={summary.loading}
             error={summary.error}
             onRetry={() => loadSummary(arch, range)}
@@ -537,6 +606,10 @@ const ShiftConsolePage = () => {
             stats={scoreboardStats}
             windowLabel={windowLabel}
             archs={digestDoc.archs}
+            logProblems={{ ...logProblems, data: logProblemsCurrent ? logProblems.data : null }}
+            onRetryLogProblems={loadLogProblems}
+            logJumpTarget={logJumpTarget}
+            onLogJump={handleLogJump}
           />
         )}
 

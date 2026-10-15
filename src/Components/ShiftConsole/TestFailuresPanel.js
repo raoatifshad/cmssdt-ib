@@ -5,6 +5,7 @@ import { theme, TONE } from "./theme";
 import { summarizeArchCell } from "./releaseExplorerData";
 import PanelState from "./PanelState";
 import WorkflowTable from "./WorkflowTable";
+import { exceptionOf } from "./exceptionText";
 
 // Same five categories/icons/order as ReleaseStatusGrid's own CATEGORIES - a shifter who
 // just read "RelVal 4" in the grid above sees the identical icon down here. Exported for
@@ -74,11 +75,17 @@ export const BadgeOnlyList = ({ comparison, archs, categoryKey, label }) => {
 // header+rows built together, not separately - the hidden "highlight" column is only
 // appended when a matching arch is actually hovered, and building it apart from the rows
 // invites the header/row column counts silently drifting out of sync with each other.
+// "Exception" is only added when at least one row has captured text - WorkflowTable shows it
+// in the per-row evidence drawer, and an always-present but empty column would still add a
+// toggle column to every table.
 function buildRelvalTable(items, highlightArch) {
   const header = ["Workflow", "Name", "Errors", "Exit Code", "Architecture", "Variant"];
+  const withException = items.some((r) => exceptionOf(r));
+  if (withException) header.push("Exception");
   if (highlightArch) header.push("Highlight");
   const rows = items.map((r) => {
     const row = [String(r.workflow_id ?? ""), r.name || "", String(r.errors ?? ""), r.exit_code || "0", r.arch || "", r.variant || "primary"];
+    if (withException) row.push(exceptionOf(r));
     if (highlightArch) row.push(r.arch === highlightArch ? "1" : "");
     return row;
   });
@@ -86,9 +93,12 @@ function buildRelvalTable(items, highlightArch) {
 }
 function buildUnittestTable(items, highlightArch) {
   const header = ["Name", "Errors", "Architecture", "Variant"];
+  const withException = items.some((u) => exceptionOf(u));
+  if (withException) header.push("Exception");
   if (highlightArch) header.push("Highlight");
   const rows = items.map((u) => {
     const row = [u.name || "", String(u.errors ?? ""), u.arch || "", u.variant || "primary"];
+    if (withException) row.push(exceptionOf(u));
     if (highlightArch) row.push(u.arch === highlightArch ? "1" : "");
     return row;
   });

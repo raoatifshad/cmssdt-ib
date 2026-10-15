@@ -1,11 +1,12 @@
 import React, { useMemo, useState } from "react";
 import { FaCubes, FaLayerGroup, FaPlus, FaVial } from "react-icons/fa";
 import { FaClipboardList } from "react-icons/fa";
-import { theme, TINT_SWATCH_COLORS } from "./theme";
+import { theme, FAIL_DOT_COLOR } from "./theme";
 import { summarizeArchCell } from "./releaseExplorerData";
 import PanelState from "./PanelState";
 import WorkflowTable from "./WorkflowTable";
 import { BADGE_ONLY_CATEGORIES, BadgeOnlyList, countChip, pillStyle } from "./TestFailuresPanel";
+import { exceptionOf } from "./exceptionText";
 
 // Compare mode's replacement for two independent per-release TestFailuresPanels: rather
 // than rendering Release A's failing RelVals and Release B's failing RelVals as two
@@ -64,12 +65,10 @@ function pairText(aVal, bVal) {
   return a ?? b ?? "";
 }
 
-// One row's "In A"/"In B" cell values - a filled dot (in that release's TINT_SWATCH_COLORS
-// hue) when present, a hollow "dot:empty" ring when not. Replaces the old wide "Both"/
-// "Only A" text column *and* the old whole-row background tint with one thing: two small
-// dots are enough on their own (shape as well as color, so it doesn't rely on color
-// perception alone) - no separate legend text needed per row, no tint fighting with the
-// row's own text for contrast.
+// One row's "In A"/"In B" cell values - a filled red dot when failing in that release, a
+// hollow "dot:empty" ring when not; "dot:both" also connects the two dots with a line (see
+// WorkflowTable's renderDot). Replaces the old wide "Both"/"Only A" text column *and* the
+// old whole-row background tint with one thing: shape (filled/hollow/linked), not hue.
 function dotTokens(a, b) {
   if (a && b) return ["dot:both", "dot:both"];
   if (a) return ["dot:onlyA", "dot:empty"];
@@ -85,25 +84,40 @@ function archLabel(ref) {
   return variant ? `${ref.arch} (${variant})` : ref.arch || "";
 }
 
-function buildMergedRelvalTable(pairs, highlightArch) {
+// A failure present in both releases may have crashed differently in each - show both,
+// labeled, rather than silently picking one; identical text is shown once.
+function pairException(aItem, bItem, labelA, labelB) {
+  const a = exceptionOf(aItem);
+  const b = exceptionOf(bItem);
+  if (a && b && a !== b) return `[${labelA}]<br>${a}<br><br>[${labelB}]<br>${b}`;
+  return a || b;
+}
+
+function buildMergedRelvalTable(pairs, highlightArch, labelA, labelB) {
   const header = ["Workflow", "Name", "Errors", "Exit Code", "Architecture", "In A", "In B"];
+  const withException = pairs.some(({ a, b }) => exceptionOf(a) || exceptionOf(b));
+  if (withException) header.push("Exception");
   if (highlightArch) header.push("Highlight");
   const rows = pairs.map(({ a, b }) => {
     const ref = a || b;
     const [inA, inB] = dotTokens(a, b);
     const row = [String(ref.workflow_id ?? ""), ref.name || "", pairText(a?.errors, b?.errors), pairText(a?.exit_code, b?.exit_code), archLabel(ref), inA, inB];
+    if (withException) row.push(pairException(a, b, labelA, labelB));
     if (highlightArch) row.push(ref.arch === highlightArch ? "1" : "");
     return row;
   });
   return { header, rows };
 }
-function buildMergedUnittestTable(pairs, highlightArch) {
+function buildMergedUnittestTable(pairs, highlightArch, labelA, labelB) {
   const header = ["Name", "Errors", "Architecture", "In A", "In B"];
+  const withException = pairs.some(({ a, b }) => exceptionOf(a) || exceptionOf(b));
+  if (withException) header.push("Exception");
   if (highlightArch) header.push("Highlight");
   const rows = pairs.map(({ a, b }) => {
     const ref = a || b;
     const [inA, inB] = dotTokens(a, b);
     const row = [ref.name || "", pairText(a?.errors, b?.errors), archLabel(ref), inA, inB];
+    if (withException) row.push(pairException(a, b, labelA, labelB));
     if (highlightArch) row.push(ref.arch === highlightArch ? "1" : "");
     return row;
   });
@@ -113,18 +127,31 @@ function buildMergedUnittestTable(pairs, highlightArch) {
 // Real release labels (short build labels, e.g. "09-08 23:00"), not generic "Release A"/
 // "Release B" - a shifter reading the legend or a chip list shouldn't have to look back up
 // at the pickers above to translate "A" into which actual build it means.
+const legendDot = <span style={{ width: 10, height: 10, borderRadius: "50%", background: FAIL_DOT_COLOR, flexShrink: 0 }} />;
+const legendRing = <span style={{ width: 9, height: 9, borderRadius: "50%", border: "1.5px solid #cbd5e1", flexShrink: 0 }} />;
+const legendLinked = (
+  <span style={{ display: "inline-flex", alignItems: "center" }}>
+    {legendDot}
+    <span style={{ width: 14, height: 2, background: FAIL_DOT_COLOR }} />
+    {legendDot}
+  </span>
+);
+
 const Legend = ({ labelA, labelB }) => (
   <div style={{ display: "flex", flexWrap: "wrap", gap: 18, marginBottom: 10, fontSize: "0.78rem", color: theme.textSecondary }}>
     {[
-      { tint: "both", text: "Failing in both" },
-      { tint: "onlyA", text: `Only in ${labelA}` },
-      { tint: "onlyB", text: `Only in ${labelB}` },
-    ].map(({ tint, text }) => (
-      <span key={tint} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-        <span style={{ width: 10, height: 10, borderRadius: "50%", background: TINT_SWATCH_COLORS[tint] }} />
+      { key: "both", swatch: legendLinked, text: "Failing in both" },
+      { key: "fail", swatch: legendDot, text: "Failing" },
+      { key: "ok", swatch: legendRing, text: "Not failing" },
+    ].map(({ key, swatch, text }) => (
+      <span key={key} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        {swatch}
         {text}
       </span>
     ))}
+    <span style={{ color: theme.textMuted }}>
+      Columns: {labelA} · {labelB}
+    </span>
   </div>
 );
 
@@ -201,7 +228,7 @@ const CompareFailuresPanel = ({ comparisonA, comparisonB, archs, failingA, faili
         (relvalPairs.length > 0 ? (
           <>
             <Legend labelA={labelA} labelB={labelB} />
-            <WorkflowTable light columnLabels={columnLabels} {...buildMergedRelvalTable(relvalPairs, highlightArch("relvals"))} />
+            <WorkflowTable light columnLabels={columnLabels} {...buildMergedRelvalTable(relvalPairs, highlightArch("relvals"), labelA, labelB)} />
           </>
         ) : (
           <PanelState kind="empty" text="No failing RelVals in either release." />
@@ -211,7 +238,7 @@ const CompareFailuresPanel = ({ comparisonA, comparisonB, archs, failingA, faili
         (unittestPairs.length > 0 ? (
           <>
             <Legend labelA={labelA} labelB={labelB} />
-            <WorkflowTable light columnLabels={columnLabels} {...buildMergedUnittestTable(unittestPairs, highlightArch("utests"))} />
+            <WorkflowTable light columnLabels={columnLabels} {...buildMergedUnittestTable(unittestPairs, highlightArch("utests"), labelA, labelB)} />
           </>
         ) : (
           <PanelState kind="empty" text="No failing unit tests in either release." />

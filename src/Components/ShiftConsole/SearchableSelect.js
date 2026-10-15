@@ -7,7 +7,9 @@ import { theme } from "./theme";
 // (Form.Control + FaSearch, as used in IBPageComponents/RelvalsLabel.js /
 // UnitTestsLabel.js) rather than a plain <select>, since release-cycle lists here can run
 // into the hundreds and a native dropdown isn't browsable at that length.
-const SearchableSelect = ({ label, value, options, onChange, placeholder = "Search…", disabled = false, minWidth = 220 }) => {
+// `grow`: let the field stretch to fill its row - for the dated-build pickers, whose full
+// tag ("CMSSW_20_1_X_2026-09-21-1100") otherwise gets cut off at the default width.
+const SearchableSelect = ({ label, value, options, onChange, placeholder = "Search…", disabled = false, minWidth = 220, grow = false }) => {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const rootRef = useRef(null);
@@ -29,7 +31,7 @@ const SearchableSelect = ({ label, value, options, onChange, placeholder = "Sear
   }, [options, query]);
 
   return (
-    <div ref={rootRef} style={{ position: "relative", minWidth }}>
+    <div ref={rootRef} style={{ position: "relative", minWidth, ...(grow ? { flex: "1 1 auto" } : null) }}>
       {label && (
         <div style={{ fontSize: "0.68rem", fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", color: theme.textMuted, marginBottom: 4 }}>
           {label}
@@ -47,6 +49,7 @@ const SearchableSelect = ({ label, value, options, onChange, placeholder = "Sear
             setQuery("");
           }}
           onChange={(e) => setQuery(e.target.value)}
+          title={selected?.label}
           style={{
             paddingLeft: 28,
             background: theme.page,
@@ -92,6 +95,9 @@ const SearchableSelect = ({ label, value, options, onChange, placeholder = "Sear
                 color: theme.text,
                 fontSize: "0.82rem",
                 fontFamily: o.mono ? theme.mono : undefined,
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
                 cursor: "pointer",
               }}
             >

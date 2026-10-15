@@ -81,18 +81,15 @@ export const CODE_CHIP = {
 // than reusing severity colors). Violet/teal are already this app's own AddOn/Unit-Tests
 // category accents (see CATEGORY below), so they read as "belongs to this app" rather than
 // a color invented just for this one table.
-// TINT_SWATCH_COLORS is the flat, fully-opaque variant for the legend - the same low alpha
-// that reads fine tinting a full-width row was nearly invisible at a 12px swatch size.
 export const TINT_COLORS = {
   both: "rgba(59, 130, 246, 0.18)",
   onlyA: "rgba(192, 132, 252, 0.20)",
   onlyB: "rgba(45, 212, 191, 0.20)",
 };
-export const TINT_SWATCH_COLORS = {
-  both: "#3b82f6",
-  onlyA: "#c084fc",
-  onlyB: "#2dd4bf",
-};
+// CompareFailuresPanel's "In A"/"In B" dots: every failure is the same red regardless of
+// which release(s) it's in - a failure present in both is shown by connecting its two dots
+// with a line, not by giving it a different hue.
+export const FAIL_DOT_COLOR = "#ef4444";
 
 // Category accents - one per digest group (RelVal/Unit Tests/Builds/AddOn/Clang), used
 // only for a small icon + label tint so a shifter can tell categories apart at a glance.
@@ -107,5 +104,6 @@ export const CATEGORY = {
   builds: { fg: "#fb923c" }, // orange
   addons: { fg: "#c084fc" }, // violet
   clang: { fg: "#94a3b8" }, // slate
+  logProblems: { fg: "#f472b6" }, // pink
   other: { fg: theme.textMuted },
 };

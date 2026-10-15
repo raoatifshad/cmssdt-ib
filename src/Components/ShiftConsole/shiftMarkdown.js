@@ -6,13 +6,15 @@ import { CODE_CHIP } from "./theme";
 // Ported from the reference client's renderMarkdown() (server/static/shift.html) as a
 // block-level parser instead of a string-to-HTML renderer, so the blocks can drive React components.
 
+// Splits on unescaped pipes only - GFM's "\|" is a literal pipe inside a cell (exception
+// text quoted from logs routinely contains one), so it must not shift the columns after it.
 function splitTableRow(row) {
   return row
     .trim()
     .replace(/^\|/, "")
-    .replace(/\|$/, "")
-    .split("|")
-    .map((cell) => cell.trim());
+    .replace(/(?<!\\)\|$/, "")
+    .split(/(?<!\\)\|/)
+    .map((cell) => cell.trim().replace(/\\\|/g, "|"));
 }
 
 function isSeparatorRow(cells) {

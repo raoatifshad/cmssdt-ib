@@ -3,8 +3,9 @@ import { Collapse, Form } from "react-bootstrap";
 import { FaSearch } from "react-icons/fa";
 import { useReactTable, getCoreRowModel, getPaginationRowModel } from "@tanstack/react-table";
 import { renderInline } from "./shiftMarkdown";
-import { theme, TONE, TINT_COLORS, TINT_SWATCH_COLORS } from "./theme";
+import { theme, TONE, TINT_COLORS, FAIL_DOT_COLOR } from "./theme";
 import { renderPrIssueEvidence } from "./prIssueEvidence";
+import { ExceptionBlock, EXCEPTION_COLUMNS } from "./exceptionText";
 
 // Columns the shifter needs at a glance. Anything else the backend sends (recurrence,
 // PR evidence, stored-failure detail, ...) is treated as drill-down evidence and hidden
@@ -66,8 +67,11 @@ const PALETTE = {
   },
 };
 
+// An Exit code cell can carry a "; was ..." suffix describing the same workflow's previous
+// failure (see splitPreviousExitCode) - only the current part decides alignment, so one
+// "65; was 0" row doesn't flip a column of bare codes from right- to left-aligned.
 function isNumericColumn(rows, colIndex) {
-  const values = rows.map((row) => (row[colIndex] || "").trim()).filter((value) => value !== "");
+  const values = rows.map((row) => splitPreviousExitCode(row[colIndex]).current).filter((value) => value !== "");
   if (values.length === 0) return false;
   return values.every((value) => /^-?\d+(\.\d+)?$/.test(value));
 }
@@ -75,8 +79,38 @@ function isNumericColumn(rows, colIndex) {
 // "62720 (SIGSEGV)" -> the numeric code plus a colored label chip, so a shifter scanning
 // the column sees the crash-type pattern (a wall of red SIGSEGV chips vs one outlier)
 // instead of having to read every parenthetical.
+//
+// When the same workflow failed in both builds but differently, the backend lists it once
+// (under "Newly failing") and appends what it was before: "62720 (SIGSEGV); was 256",
+// "65; was same exit code at step2". The current part keeps the chip treatment; the
+// previous part is a small muted label (plain text, no second chip - it's history, not
+// the thing to act on).
+function splitPreviousExitCode(value) {
+  const text = (value || "").trim();
+  const idx = text.indexOf("; was ");
+  if (idx < 0) return { current: text, previous: "" };
+  return { current: text.slice(0, idx).trim(), previous: text.slice(idx + 2).trim() };
+}
+
 function renderExitCode(value, palette) {
-  const match = /^(-?\d+)\s*\(([^)]+)\)\s*$/.exec((value || "").trim());
+  const { current, previous } = splitPreviousExitCode(value);
+  const currentNode = renderCurrentExitCode(current, palette);
+  if (!previous) return currentNode;
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+      {currentNode}
+      <span
+        title="Same workflow failed differently in the previous build"
+        style={{ fontSize: "0.72rem", color: palette.mutedText, fontFamily: theme.mono, whiteSpace: "nowrap" }}
+      >
+        {previous}
+      </span>
+    </span>
+  );
+}
+
+function renderCurrentExitCode(value, palette) {
+  const match = /^(-?\d+)\s*\(([^)]+)\)\s*$/.exec(value);
   if (!match) return renderInline(value);
   const [, code, label] = match;
   const severe = /sig|segv|abort|core|crash/i.test(label);
@@ -101,22 +135,34 @@ function renderExitCode(value, palette) {
   );
 }
 
-// "dot:both"/"dot:onlyA"/"dot:onlyB" -> a small filled circle in that exact TINT_SWATCH_
-// COLORS hue (the same colors CompareFailuresPanel's Legend uses, imported not duplicated
-// so the two can never drift apart); "dot:empty" -> a faint hollow ring, meaning "not
-// failing in this release". This is CompareFailuresPanel's "In A"/"In B" columns' entire
-// design: two small dots replace the old wide "Both"/"Only A" text column *and* the old
-// whole-row background tint in one move - one signal instead of two competing ones, and
-// unlike a tinted row, a hollow-vs-filled dot pair reads correctly without relying on
-// color perception alone (shape changes too, not just color).
-function renderDot(value) {
+// "dot:both"/"dot:onlyA"/"dot:onlyB" -> a small filled red circle (FAIL_DOT_COLOR, the
+// same one CompareFailuresPanel's Legend uses); "dot:empty" -> a faint hollow ring, meaning
+// "not failing in this release". "dot:both" additionally draws half of a connector line -
+// from the dot to the right edge in the "In A" cell, from the left edge to the dot in the
+// "In B" cell - and since the two columns are adjacent, the halves meet into one line
+// joining the pair: "same failure in both releases" reads as one linked shape rather than
+// a third color to learn.
+function renderDot(value, column) {
   const match = /^dot:(\w+)$/.exec(value || "");
   if (!match) return null;
   const key = match[1];
   if (key === "empty") {
-    return <span style={{ display: "inline-block", width: 9, height: 9, borderRadius: "50%", border: "1.5px solid #cbd5e1" }} />;
+    return <span style={{ display: "block", margin: "0 auto", width: 9, height: 9, borderRadius: "50%", border: "1.5px solid #cbd5e1" }} />;
   }
-  return <span style={{ display: "inline-block", width: 10, height: 10, borderRadius: "50%", background: TINT_SWATCH_COLORS[key] || "#94a3b8" }} />;
+  // display:block (not inline-block) so the cell's vertical-align:middle centers the dot
+  // box itself - an inline dot sits on the text baseline instead, a few px off the
+  // connector line, which is pinned to the cell's exact vertical midpoint.
+  const dot = (
+    <span style={{ position: "relative", zIndex: 1, display: "block", margin: "0 auto", width: 10, height: 10, borderRadius: "50%", background: FAIL_DOT_COLOR }} />
+  );
+  if (key !== "both") return dot;
+  const half = column === "in a" ? { left: "50%", right: 0 } : { left: 0, right: "50%" };
+  return (
+    <>
+      <span style={{ position: "absolute", top: "50%", height: 2, marginTop: -1, background: FAIL_DOT_COLOR, ...half }} />
+      {dot}
+    </>
+  );
 }
 
 function rowMatchesSearch(row, searchableIndexes, searchLower) {
@@ -414,7 +460,10 @@ const WorkflowTable = ({ header, rows, light = false, columnLabels = {} }) => {
                             textAlign: isDot ? "center" : numeric ? "right" : "left",
                             fontFamily: isMono ? theme.mono : undefined,
                             color: palette.cellText,
-                            verticalAlign: "top",
+                            // Dot cells anchor renderDot's absolutely-positioned connector
+                            // line, centered vertically so it meets the dot itself.
+                            verticalAlign: isDot ? "middle" : "top",
+                            ...(isDot ? { position: "relative" } : null),
                             borderBottom: rowBorder,
                             // Every primary column stays one line - a long value (e.g. a
                             // cross-release comparison tag) wrapping across 5+ lines blew up
@@ -428,7 +477,7 @@ const WorkflowTable = ({ header, rows, light = false, columnLabels = {} }) => {
                           {normalizedHeader[idx] === "exit code"
                             ? renderExitCode(row[idx], palette)
                             : isDot
-                            ? renderDot(row[idx])
+                            ? renderDot(row[idx], normalizedHeader[idx])
                             : renderInline(row[idx])}
                         </td>
                       );
@@ -469,7 +518,7 @@ const WorkflowTable = ({ header, rows, light = false, columnLabels = {} }) => {
                                 borderBottom: `1px solid ${palette.border}`,
                                 padding: "10px 12px 12px 12px",
                                 display: "grid",
-                                gridTemplateColumns: "max-content 1fr",
+                                gridTemplateColumns: "max-content minmax(0, 1fr)",
                                 columnGap: 12,
                                 rowGap: 4,
                                 fontSize: "0.8rem",
@@ -482,6 +531,8 @@ const WorkflowTable = ({ header, rows, light = false, columnLabels = {} }) => {
                                     <div style={{ color: palette.secondaryText }}>
                                       {normalizedHeader[idx] === "pr/issue evidence"
                                         ? renderPrIssueEvidence(row[idx])
+                                        : EXCEPTION_COLUMNS.includes(normalizedHeader[idx])
+                                        ? <ExceptionBlock text={row[idx]} light={light} />
                                         : renderInline(row[idx])}
                                     </div>
                                   </React.Fragment>

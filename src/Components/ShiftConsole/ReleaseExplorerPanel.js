@@ -121,6 +121,8 @@ const ReleaseColumn = ({
           options={dateOptions}
           onChange={selection.setDate}
           disabled={!dateOptions.length}
+          minWidth={280}
+          grow
         />
       </div>
 
@@ -196,8 +198,8 @@ const TrendPanel = ({ structure, selection }) => {
           onChange={selection.setFlavor}
           disabled={!flavorOptions.length}
         />
-        <SearchableSelect label="From build" value={fromDate} options={dateOptions} onChange={setFromDate} disabled={!dateOptions.length} />
-        <SearchableSelect label="To build" value={toDate} options={dateOptions} onChange={setToDate} disabled={!dateOptions.length} />
+        <SearchableSelect label="From build" value={fromDate} options={dateOptions} onChange={setFromDate} disabled={!dateOptions.length} minWidth={280} grow />
+        <SearchableSelect label="To build" value={toDate} options={dateOptions} onChange={setToDate} disabled={!dateOptions.length} minWidth={280} grow />
       </div>
 
       {selection.flavorLoading && <PanelState kind="loading" text="Loading release data…" />}

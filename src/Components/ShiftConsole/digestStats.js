@@ -1,5 +1,6 @@
 import { isEmptySection } from "./shiftMarkdown";
 import { parseEvidenceMentions } from "./prIssueEvidence";
+import { EXCEPTION_COLUMNS } from "./exceptionText";
 
 // Counts rows/items in a single #### section (a table or a bullet list) so severity can
 // be surfaced as a number without a shifter opening it.
@@ -107,7 +108,10 @@ function tableRowSummary(header, row, archName) {
     .filter(Boolean);
   const detail = detailFields.map(({ label, value }) => `${label}: ${value}`).join(" · ");
   const prIssue = parseEvidenceMentions(cell("pr/issue evidence"));
-  return { name, detail, detailFields, prIssue: prIssue.length ? prIssue : null };
+  // The captured exception/first-error text, kept apart from detailFields - it's multi-line
+  // log output, not a short "Label: value" field, and gets its own block in AlertsPanel.
+  const exception = EXCEPTION_COLUMNS.map(cell).find(Boolean) || "";
+  return { name, detail, detailFields, prIssue: prIssue.length ? prIssue : null, exception };
 }
 
 // One entry per row/bullet in a section, in the same order the Shift digest panel below

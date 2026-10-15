@@ -20,7 +20,8 @@ const bubbleStyle = {
   padding: "10px 13px",
   fontSize: "0.8rem",
   lineHeight: 1.5,
-  maxWidth: 360,
+  // Capped to the viewport too, so a bubble near the screen edge never runs off it.
+  maxWidth: "min(360px, calc(100vw - 24px))",
   pointerEvents: "none",
 };
 
@@ -43,7 +44,9 @@ function BubbleContent({ loading, error, items, categoryKey }) {
   return (
     <div>
       {items.slice(0, MAX_ITEMS).map((item, idx) => (
-        <div key={idx} style={{ whiteSpace: "nowrap" }}>
+        // Long workflow names wrap (hanging indent so each item still reads as one line)
+        // rather than nowrap - nowrap inside a max-width box spilled text past its edge.
+        <div key={idx} style={{ overflowWrap: "anywhere", paddingLeft: 12, textIndent: -12 }}>
           {bubbleLine(item, categoryKey)}
         </div>
       ))}

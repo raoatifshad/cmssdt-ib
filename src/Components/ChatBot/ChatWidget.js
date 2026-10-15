@@ -73,7 +73,13 @@ function linkifyReleaseMentions(markdown) {
     if (!info) return whole;
     const [, que, flavor, date] = info;
     const href = config.urls.newRelValsSpecific(que, date, flavor, arch, "&selectedStatus=failed");
-    return `[${whole}](${href})`;
+    // The chatbot calls the base variant "primary"; everywhere else in this app (the IB
+    // Dashboard's own flavor badge, via ComparisonTable.js's getDisplayName) it's "DEFAULT" -
+    // matching that instead of leaving two different names for the same thing in view at once.
+    const displayText = /^primary$/i.test(variantLabel.trim())
+      ? whole.replace(variantLabel, variantLabel.replace(/primary/i, "DEFAULT"))
+      : whole;
+    return `[${displayText}](${href})`;
   });
 }
 
@@ -151,7 +157,15 @@ function styledDigestCellHtml(headerLabel, renderedText) {
   }
 
   if (header === "exit code") {
-    const match = EXIT_CODE_PATTERN.exec(plain);
+    // "62720 (SIGSEGV); was 256" - same split as WorkflowTable.js renderExitCode: chip for
+    // the current code, the previous failure as a small muted plain-text label after it.
+    const wasIdx = plain.indexOf("; was ");
+    const current = wasIdx < 0 ? plain : plain.slice(0, wasIdx).trim();
+    const previous = wasIdx < 0 ? "" : plain.slice(wasIdx + 2).trim();
+    const previousHtml = previous
+      ? ` <span title="Same workflow failed differently in the previous build" style="font-size:10px;color:#6b7280;font-family:monospace;white-space:nowrap;">${escapeHtml(previous)}</span>`
+      : "";
+    const match = EXIT_CODE_PATTERN.exec(current);
     if (match) {
       const [, code, label] = match;
       const severe = /sig|segv|abort|core|crash/i.test(label);
@@ -160,9 +174,11 @@ function styledDigestCellHtml(headerLabel, renderedText) {
       return (
         `<span style="font-family:monospace;">${escapeHtml(code)}</span> ` +
         `<span style="display:inline-block;font-size:9px;font-weight:700;padding:1px 6px;` +
-        `border-radius:999px;background:${bg};color:${fg};white-space:nowrap;">${escapeHtml(label)}</span>`
+        `border-radius:999px;background:${bg};color:${fg};white-space:nowrap;">${escapeHtml(label)}</span>` +
+        previousHtml
       );
     }
+    if (previous) return `<span style="font-family:monospace;">${escapeHtml(current)}</span>${previousHtml}`;
   }
 
   if (header === "status") {
@@ -193,6 +209,17 @@ const renderMarkdownToHtml = (rawMarkdown) => {
     const primaryIdx = [];
     const evidenceIdx = [];
     headerLabels.forEach((label, idx) => (isPrimaryColumn(label) ? primaryIdx : evidenceIdx).push(idx));
+    // A table whose headers don't match ANY of PRIMARY_TABLE_COLUMNS (e.g. an IB-comparison
+    // report's own "Metric"/"Delta"-style tables, not a workflow-failure listing) would
+    // otherwise put every column behind "Show evidence" - a row with nothing recognized as
+    // primary renders as a bare, unlabeled toggle with no visible content next to it. A whole
+    // report built from several of these collapses into a noisy stack of empty-looking
+    // disclosures instead of the plain small table it actually is. Once there's nothing
+    // "primary" to contrast against, there's nothing worth hiding either - just show it all.
+    if (primaryIdx.length === 0 && evidenceIdx.length > 0) {
+      primaryIdx.push(...evidenceIdx);
+      evidenceIdx.length = 0;
+    }
     const hasEvidenceColumns = evidenceIdx.length > 0;
 
     const headerHtml =
@@ -375,6 +402,113 @@ const isGroupableTable = (headers, rows) => {
   return uniqueFirstColumn.size > 0 && uniqueFirstColumn.size < rows.length;
 };
 
+// A plain `.textContent` read collapses block-level structure entirely - a <br> or a
+// sibling <div> contributes zero characters of its own, so a multi-field evidence cell (IB
+// tag / RelVal name / Workflow ID, or similar) reads back as one unbroken run of words with
+// no separation at all once GroupedResultTable/CSV/JSON re-extract it from the already-
+// rendered table. Recognizes this file's own evidence-column shape (renderer.table's
+// evidenceCell: a lone <details> whose one child <div> holds alternating label/value <div>
+// pairs) and reconstructs proper "Label: value" lines from it directly, positionally - no
+// fragile style-string matching needed since this exact shape is authored a few hundred
+// lines up in this same file. Anything else just gets its <br> tags turned back into real
+// line breaks.
+function extractCellText(cell) {
+  const onlyChild = cell.children.length === 1 ? cell.children[0] : null;
+  const grid = onlyChild?.tagName === "DETAILS" ? onlyChild.querySelector("div") : null;
+  if (grid) {
+    const parts = Array.from(grid.children);
+    const lines = [];
+    for (let i = 0; i < parts.length; i += 2) {
+      const label = parts[i]?.textContent.trim();
+      const value = parts[i + 1]?.textContent.trim();
+      if (label || value) lines.push([label, value].filter(Boolean).join(": "));
+    }
+    if (lines.length) return lines.join("\n");
+  }
+  const clone = cell.cloneNode(true);
+  clone.querySelectorAll("br").forEach((el) => el.replaceWith("\n"));
+  return clone.textContent.trim();
+}
+
+// "Exit code" is always a PRIMARY_TABLE_COLUMNS column (never one of extractCellText's
+// reconstructed "Label: value" evidence lines), so by the time it reaches here it's a plain
+// "<code> <label>" string (e.g. "62720 SIGSEGV") - the severity coloring styledDigestCellHtml
+// gives it in the regular table view was already stripped out when extractTableData read it
+// back with .textContent. Same pattern/severity check as styledDigestCellHtml's exit-code
+// branch, reused here rather than reinvented, so a shifter sees the same red-for-severe/
+// grey-for-benign distinction in both places instead of two different conventions.
+const EVIDENCE_EXIT_CODE_PATTERN = /^(-?\d+)\s+(.+)$/;
+
+// Cycled by line position (not by label identity - every row in a given report repeats the
+// same labels in the same order, e.g. IB/RelVal/Workflow ID, so position already gives each
+// label a consistent color across the whole table without needing to track which labels
+// have been seen). Picked from this app's existing accent hues rather than inventing a new
+// palette, and deliberately distinct from red/amber/green so they don't read as a status.
+const EVIDENCE_LABEL_COLORS = ["#2563eb", "#0d9488", "#7c3aed", "#b45309", "#be123c", "#475569"];
+
+// Renders extractCellText's reconstructed "Label: value" lines with the label colored, so
+// "IB", "RelVal", "Workflow ID" (etc.) are visually distinguishable from the values that
+// follow them, instead of a flat wall of same-colored text. Anything that isn't a
+// recognizable "Label: value" line (a single plain value, or the "—" empty placeholder)
+// just renders as-is - this only decorates lines extractCellText actually reconstructed.
+// `header` (the column this cell belongs to) additionally triggers the exit-code styling
+// above when it's the "Exit code" column, regardless of the "Label: value" shape.
+function EvidenceCellContent({ text, header }) {
+  const isExitCode = /^exit code$/i.test((header || "").trim());
+  const lines = String(text ?? "—").split("\n");
+  return (
+    <>
+      {lines.map((line, idx) => {
+        if (isExitCode) {
+          const wasIdx = line.indexOf("; was ");
+          const previous = wasIdx < 0 ? "" : line.slice(wasIdx + 2).trim();
+          const match = EVIDENCE_EXIT_CODE_PATTERN.exec((wasIdx < 0 ? line : line.slice(0, wasIdx)).trim());
+          if (match) {
+            const [, code, label] = match;
+            const severe = /sig|segv|abort|core|crash/i.test(label);
+            const fg = severe ? "#dc2626" : "#6b7280";
+            const bg = severe ? "#fee2e2" : "#f3f4f6";
+            return (
+              <div key={idx}>
+                <span style={{ fontFamily: "monospace" }}>{code}</span>{" "}
+                <span
+                  style={{
+                    display: "inline-block",
+                    fontSize: "9px",
+                    fontWeight: 700,
+                    padding: "1px 6px",
+                    borderRadius: "999px",
+                    background: bg,
+                    color: fg,
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {label}
+                </span>
+                {previous && (
+                  <span title="Same workflow failed differently in the previous build" style={{ marginLeft: 6, fontSize: "10px", color: "#6b7280", fontFamily: "monospace" }}>
+                    {previous}
+                  </span>
+                )}
+              </div>
+            );
+          }
+        }
+        const sep = line.indexOf(": ");
+        if (sep === -1) return <div key={idx}>{line}</div>;
+        const label = line.slice(0, sep);
+        const rest = line.slice(sep + 2);
+        return (
+          <div key={idx}>
+            <span style={{ color: EVIDENCE_LABEL_COLORS[idx % EVIDENCE_LABEL_COLORS.length], fontWeight: 700 }}>{label}:</span>{" "}
+            <span>{rest}</span>
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
 const buildGroups = (rows) => {
   const groups = [];
   const indexByKey = new Map();
@@ -456,22 +590,23 @@ function GroupedResultTable({ headers, rows }) {
               </span>
             </button>
             {expanded[idx] && remainingHeaders.length === 1 && (
-              <div style={{ display: "flex", flexWrap: "wrap", gap: "4px", padding: "6px 8px", background: "#fff" }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: "4px", padding: "6px 8px", background: "#fff" }}>
                 {group.values.map((value, valueIdx) => (
-                  <span
+                  <div
                     key={valueIdx}
                     style={{
                       background: "#f3f4f6",
                       border: "1px solid #e5e7eb",
                       borderRadius: "4px",
-                      padding: "2px 6px",
+                      padding: "3px 7px",
                       fontSize: "11px",
                       color: "#111827",
                       overflowWrap: "anywhere",
+                      lineHeight: 1.5,
                     }}
                   >
-                    {value[0] || "—"}
-                  </span>
+                    <EvidenceCellContent text={value[0]} header={remainingHeaders[0]} />
+                  </div>
                 ))}
               </div>
             )}
@@ -510,7 +645,7 @@ function GroupedResultTable({ headers, rows }) {
                               overflowWrap: "anywhere",
                             }}
                           >
-                            {cell || "—"}
+                            <EvidenceCellContent text={cell} header={remainingHeaders[cellIdx]} />
                           </td>
                         ))}
                       </tr>
@@ -1125,7 +1260,7 @@ export default function ChatWidget({ currentReleaseQue, onHighlightRequest } = {
     table.querySelectorAll("tbody tr").forEach((tr) => {
       const row = [];
       tr.querySelectorAll("td").forEach((td) => {
-        row.push(td.textContent.trim());
+        row.push(extractCellText(td));
       });
       if (row.length > 0) rows.push(row);
     });

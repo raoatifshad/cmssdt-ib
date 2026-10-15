@@ -47,6 +47,15 @@ export function fetchReleaseExplorerFailing(tag, archs) {
   return fetchShiftJson(`/api/release-explorer/failing?${params.toString()}`);
 }
 
+// Problems found in the raw logs of tests/RelVal steps the dashboard reports as PASSED, for
+// the same from/to window the Shift summary compares - see GET /api/test-log-problems.
+// Both tags are required (422 otherwise); `arch` omitted means all architectures.
+export function fetchTestLogProblems(from, to, arch) {
+  const params = new URLSearchParams({ from, to });
+  if (arch) params.set("arch", arch);
+  return fetchShiftJson(`/api/test-log-problems?${params.toString()}`);
+}
+
 // /shift/login is meant to be a real browser navigation (CERN's login page can't redirect
 // back to a fetch) - but this backend returns 401 from /api/shift-whoami even when SSO is
 // completely unconfigured, and only exposes the 503 "not configured" state on /shift/login

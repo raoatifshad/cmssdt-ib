@@ -59,6 +59,7 @@ export default defineConfig(({ mode }) => {
         "/api/alerts/status": { target: shiftBackend, changeOrigin: true },
         "/api/alerts/evaluate": { target: shiftBackend, changeOrigin: true },
         "/api/release-explorer/failing": { target: shiftBackend, changeOrigin: true },
+        "/api/test-log-problems": { target: shiftBackend, changeOrigin: true },
       },
     },
 
@@ -75,6 +76,7 @@ export default defineConfig(({ mode }) => {
         "/api/alerts/status": { target: shiftBackend, changeOrigin: true },
         "/api/alerts/evaluate": { target: shiftBackend, changeOrigin: true },
         "/api/release-explorer/failing": { target: shiftBackend, changeOrigin: true },
+        "/api/test-log-problems": { target: shiftBackend, changeOrigin: true },
       },
     },
   };

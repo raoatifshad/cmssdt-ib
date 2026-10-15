@@ -1,18 +1,19 @@
 import React, { useState } from "react";
 import { Collapse } from "react-bootstrap";
-import { BsBell, BsCheckCircle, BsChevronRight } from "react-icons/bs";
+import { BsBell, BsCheckCircle, BsChevronRight, BsFileEarmarkText } from "react-icons/bs";
 import { FaCode, FaCubes, FaLayerGroup, FaPlus, FaVial } from "react-icons/fa";
 import { renderInline } from "./shiftMarkdown";
 import { theme, TONE, CATEGORY } from "./theme";
 import PanelState from "./PanelState";
 import { EvidenceBadge, EvidenceSummaryBadge } from "./prIssueEvidence";
+import { ExceptionBlock, exceptionHeadline } from "./exceptionText";
 
 // Same category -> icon mapping as DigestPanel's GROUP_META, and the same icons as the
 // main IB Dashboard's own "Row Icons" legend (Navigation.js) - Builds/Unit/RelVal/AddOn/
 // Q-A read as the same visual language everywhere in the app, not a separate icon set
 // invented for this panel. Clang has no equivalent in that legend (it isn't one of the
 // five build-matrix columns), so it keeps its own icon.
-const CATEGORY_ICON = { relval: FaLayerGroup, utests: FaVial, builds: FaCubes, addons: FaPlus, clang: FaCode };
+const CATEGORY_ICON = { relval: FaLayerGroup, utests: FaVial, builds: FaCubes, addons: FaPlus, clang: FaCode, logProblems: BsFileEarmarkText };
 
 // Human-readable row title per category, standing in for the raw section heading
 // ("Newly failing RelVal") - the affected architectures are shown separately (as chips, see
@@ -23,6 +24,8 @@ const CATEGORY_TITLE = {
   builds: "Build failure",
   addons: "AddOn failure",
   clang: "Clang warning increase",
+  // From /api/test-log-problems (see logProblems.js), not the digest.
+  logProblems: "Hidden problems in passed tests",
 };
 
 // Per-field label color for an item's detail line (digestStats.js's tableRowSummary
@@ -37,6 +40,8 @@ const DETAIL_FIELD_COLOR = {
   "exit code": TONE.warning.fg,
   warnings: TONE.warning.fg,
   status: "#2dd4bf", // teal
+  known: "#93c5fd",
+  tests: "#93c5fd",
 };
 
 // One item in an alert's detail list - collapsed to just the workflow/warning name so a
@@ -50,7 +55,10 @@ const DETAIL_FIELD_COLOR = {
 const AlertDetailItem = ({ item }) => {
   const [open, setOpen] = useState(false);
   const hasPrIssue = item.prIssue?.length > 0;
-  const hasDetail = item.detailFields?.length > 0 || hasPrIssue;
+  // The exception's first line is previewed on the collapsed row itself (what actually
+  // broke is the first thing a shifter wants), with the full text behind the same click.
+  const headline = exceptionHeadline(item.exception);
+  const hasDetail = item.detailFields?.length > 0 || hasPrIssue || !!headline;
 
   return (
     <li style={{ listStyle: "none" }}>
@@ -82,6 +90,13 @@ const AlertDetailItem = ({ item }) => {
         )}
         <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
           {renderInline(item.name)}
+          {/* Not for raw log evidence (hidden-problems items): there the name already is
+              the problem's summary, and a preview would only repeat it. */}
+          {headline && !open && !item.rawException && (
+            <span title={headline} style={{ marginLeft: 8, color: "#fca5a5", fontFamily: theme.mono, fontSize: "0.76rem" }}>
+              {headline}
+            </span>
+          )}
         </span>
         {hasPrIssue && <EvidenceSummaryBadge mentions={item.prIssue} />}
       </button>
@@ -108,6 +123,7 @@ const AlertDetailItem = ({ item }) => {
                 ))}
               </div>
             )}
+            {headline && <ExceptionBlock text={item.exception} raw={item.rawException} />}
           </div>
         </Collapse>
       )}
@@ -269,7 +285,7 @@ const AlertRow = ({ alert }) => {
                   ))}
                   {group.moreCount > 0 && (
                     <li style={{ color: theme.textMuted, fontSize: "0.82rem", fontStyle: "italic", listStyle: "none" }}>
-                      +{group.moreCount} more — see the Shift digest below
+                      +{group.moreCount} more — {alert.moreHint || "see the Shift digest below"}
                     </li>
                   )}
                 </ul>

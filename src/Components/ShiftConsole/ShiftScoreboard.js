@@ -1,16 +1,18 @@
 import React, { useMemo, useState } from "react";
-import { BsChevronRight, BsCheckCircle, BsCpu, BsExclamationTriangle } from "react-icons/bs";
+import { BsChevronRight, BsCheckCircle, BsCpu, BsExclamationTriangle, BsFileEarmarkText } from "react-icons/bs";
 import { FaCubes, FaVial } from "react-icons/fa";
 import { archStats, categoryItemsByArch } from "./digestStats";
 import { renderInline } from "./shiftMarkdown";
 import { theme, TONE } from "./theme";
+import HiddenProblemsPanel from "./HiddenProblemsPanel";
 
 // Grafana-style stat tile: big number, a left edge bar in the threshold color so the
 // state reads peripherally without focusing on the number, and an icon chip that reuses
 // the same tone as the edge bar. Every tile is independently clickable - each one expands
 // only the breakdown relevant to *that* number (e.g. "Build failures" shows Build items,
 // not RelVal/Unit Tests/Clang too), not one shared table repeated for every tile.
-const Tile = ({ icon, value, label, tone, onClick, expanded }) => {
+// `sub`: optional small third line under the label (used by the hidden-problems tile).
+const Tile = ({ icon, value, label, sub, tone, onClick, expanded }) => {
   const t = TONE[tone];
   return (
     <div
@@ -48,6 +50,7 @@ const Tile = ({ icon, value, label, tone, onClick, expanded }) => {
       <div>
         <div style={{ fontSize: "1.55rem", fontWeight: 800, color: theme.text, lineHeight: 1 }}>{value}</div>
         <div style={{ fontSize: "0.76rem", color: theme.textMuted, marginTop: 4, fontWeight: 600 }}>{label}</div>
+        {sub && <div style={{ fontSize: "0.72rem", color: theme.textMuted, marginTop: 2 }}>{sub}</div>}
       </div>
       {onClick && (
         <BsChevronRight
@@ -176,7 +179,19 @@ const CategoryItemList = ({ groups }) => (
   </div>
 );
 
-const ShiftScoreboard = ({ archCount, stats, windowLabel, archs }) => {
+// Value/sub-line/tone for the "Hidden problems in passed tests" tile. When the "to" build's
+// logs aren't imported yet the backend's zeros mean "unknown", so the tile shows "—" and
+// "no logs yet", never "0". Red only when there are new problems.
+function logProblemsTile({ data, loading, error }) {
+  if (loading && !data) return { value: "…", sub: "loading", tone: "neutral" };
+  if (error) return { value: "—", sub: "couldn't load", tone: "neutral" };
+  if (!data) return { value: "—", sub: null, tone: "neutral" };
+  if (!data.coverage?.to_imported) return { value: "—", sub: "no logs yet", tone: "neutral" };
+  const t = data.totals || {};
+  return { value: t.new_problems ?? 0, sub: `+${t.returned_problems ?? 0} intermittent`, tone: t.new_problems > 0 ? "danger" : "neutral" };
+}
+
+const ShiftScoreboard = ({ archCount, stats, windowLabel, archs, logProblems, onRetryLogProblems, logJumpTarget, onLogJump }) => {
   const [expandedTile, setExpandedTile] = useState(null);
   const toggle = (tile) => setExpandedTile((prev) => (prev === tile ? null : tile));
 
@@ -256,9 +271,21 @@ const ShiftScoreboard = ({ archCount, stats, windowLabel, archs }) => {
           onClick={() => toggle("clang")}
           expanded={expandedTile === "clang"}
         />
+        {logProblems && (
+          <Tile
+            icon={<BsFileEarmarkText size={17} />}
+            label="Hidden problems in passed tests"
+            onClick={() => toggle("logProblems")}
+            expanded={expandedTile === "logProblems"}
+            {...logProblemsTile(logProblems)}
+          />
+        )}
       </div>
       {expandedTile === "archs" && archBreakdown.length > 0 && <ArchBreakdownTable archBreakdown={archBreakdown} />}
       {tileCategory && <CategoryItemList groups={categoryGroups} />}
+      {expandedTile === "logProblems" && logProblems && (
+        <HiddenProblemsPanel state={logProblems} onRetry={onRetryLogProblems} jumpTarget={logJumpTarget} onJump={onLogJump} />
+      )}
     </div>
   );
 };
