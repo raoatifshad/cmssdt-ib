@@ -194,7 +194,15 @@ const renderMarkdownToHtml = (rawMarkdown) => {
   const markdown = linkifyReleaseMentions(rawMarkdown);
 
   const renderer = new marked.Renderer();
-  renderer.html = (rawHtmlFromModel) => escapeHtml(rawHtmlFromModel);
+  // marked >= 13 passes a token object here, not a string: escapeHtml(token) rendered
+  // "[object Object]" for any "<...>" in an answer -- "edm::Wrapper<int>" in an Issue title,
+  // a "<br>" in an LLM table, an "<IB tag>" placeholder (found 2026-10-15). Escape the raw
+  // text; a bare <br> (used inside table cells by the backend and the LLM) stays a line break.
+  renderer.html = (token) => {
+    const raw = typeof token === "string" ? token : token?.raw ?? token?.text ?? "";
+    if (/^\s*<br\s*\/?>\s*$/i.test(raw)) return "<br>";
+    return escapeHtml(raw);
+  };
   // Overriding table() (rather than just tablecell()) is what gives each cell access to
   // its own column's header label, needed to decide whether it's an Errors/Exit code/
   // Status column worth color-coding - the default tablecell(token) hook has no column
