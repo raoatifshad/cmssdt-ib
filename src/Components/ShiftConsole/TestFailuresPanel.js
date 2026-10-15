@@ -146,6 +146,18 @@ const TestFailuresPanel = ({ comparison, archs, failing, highlightCategory, high
     BADGE_ONLY_CATEGORIES.map((c) => [c.key, (archs || []).filter((a) => summarizeArchCell(comparison, c.key, a).status === "danger").length]),
   );
 
+  // Archs whose static dashboard entry has no RelVal / unit-test result at all (the grid's
+  // "–"): an empty failing list there means "not run yet", not "nothing failed".
+  // Found 2026-10-15: CMSSW_20_1_X_2026-10-15-0900 showed "No failing RelVals." while its
+  // RelVals had not run.
+  const missingArchs = (key) => (archs || []).filter((a) => summarizeArchCell(comparison, key, a).status === "missing");
+  const emptyText = (key, label) => {
+    const missing = missingArchs(key);
+    if (archs?.length && missing.length === archs.length) return `${label} results are not available yet for this build.`;
+    if (missing.length) return `No failing ${label === "RelVal" ? "RelVals" : "unit tests"} so far - no ${label} results yet on ${missing.join(", ")}.`;
+    return `No failing ${label === "RelVal" ? "RelVals" : "unit tests"}.`;
+  };
+
   const pills = [
     { key: "builds", label: "Builds", icon: <FaCubes size={12} />, count: badgeCounts.builds },
     { key: "utests", label: "Unit Tests", icon: <FaVial size={12} />, count: unittests.length },
@@ -170,14 +182,14 @@ const TestFailuresPanel = ({ comparison, archs, failing, highlightCategory, high
         (relvals.length > 0 ? (
           <WorkflowTable light {...buildRelvalTable(relvals, highlightCategory === "relvals" ? highlightArch : null)} />
         ) : (
-          <PanelState kind="empty" text="No failing RelVals." />
+          <PanelState kind="empty" text={emptyText("relvals", "RelVal")} />
         ))}
 
       {active === "utests" &&
         (unittests.length > 0 ? (
           <WorkflowTable light {...buildUnittestTable(unittests, highlightCategory === "utests" ? highlightArch : null)} />
         ) : (
-          <PanelState kind="empty" text="No failing unit tests." />
+          <PanelState kind="empty" text={emptyText("utests", "Unit-test")} />
         ))}
 
       {active === "builds" && <BadgeOnlyList comparison={comparison} archs={archs} categoryKey="builds" label="Build" />}
