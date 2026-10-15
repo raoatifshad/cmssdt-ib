@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { BsCheckCircle } from "react-icons/bs";
 import { FaCode, FaCubes, FaLayerGroup, FaPlus, FaVial } from "react-icons/fa";
 import { buildDigestDocument, renderInline, isEmptySection } from "./shiftMarkdown";
-import { archStats, classifySection } from "./digestStats";
+import { archCoverage, archStats, classifySection, isCoverageSection } from "./digestStats";
 import { theme, TONE, CATEGORY } from "./theme";
 import ArchMatrix from "./ArchMatrix";
 import WorkflowTable from "./WorkflowTable";
@@ -92,10 +92,23 @@ const GROUP_META = {
 // Collapses the backend's five stacked #### sections into two focused cards, and drops
 // each one entirely to a single line when there's nothing to report - a clean
 // architecture used to cost five "None." headings of scroll for no information.
-const SectionGroupCard = ({ groupKey, sections }) => {
+const SectionGroupCard = ({ groupKey, sections, notCompared }) => {
   const meta = GROUP_META[groupKey];
   const Icon = meta.icon;
   const nonEmpty = sections.filter((section) => !isEmptySection(section));
+  // nothing in this category was imported for the "to" build: say so in neutral grey
+  // instead of a green "No ... changes this shift." (see archCoverage)
+  if (notCompared && nonEmpty.length === 0) {
+    return (
+      <div style={{ background: theme.surface, border: `1px solid ${theme.border}`, borderRadius: 12, padding: 18 }}>
+        <h4 style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.92rem", fontWeight: 700, color: theme.text, margin: "0 0 12px" }}>
+          <Icon size={13} color={meta.color} />
+          {meta.title}
+        </h4>
+        <div style={{ color: theme.textMuted, fontSize: "0.86rem" }}>Not compared: no results imported yet for the newer build.</div>
+      </div>
+    );
+  }
 
   return (
     <div style={{ background: theme.surface, border: `1px solid ${theme.border}`, borderRadius: 12, padding: 18 }}>
@@ -120,22 +133,45 @@ const SectionGroupCard = ({ groupKey, sections }) => {
 
 const ArchDetail = ({ arch }) => {
   const groups = useMemo(() => {
-    const buckets = { relval: [], clang: [], builds: [], utests: [], addons: [], other: [] };
-    arch.sections.forEach((section) => buckets[classifySection(section.heading)].push(section));
+    const buckets = { relval: [], clang: [], builds: [], utests: [], addons: [], other: [], coverage: [] };
+    arch.sections.forEach((section) =>
+      buckets[isCoverageSection(section) ? "coverage" : classifySection(section.heading)].push(section)
+    );
     return buckets;
   }, [arch]);
+  const coverage = useMemo(() => archCoverage(arch), [arch]);
 
   return (
     <div>
+      {/* "Results not imported yet" first, in amber: a shifter must read it before any of the
+          "nothing changed" cards below, which only cover what was imported. */}
+      {groups.coverage.map((section, idx) => (
+        <div
+          key={`coverage-${idx}`}
+          style={{
+            marginBottom: 16,
+            background: TONE.warning.tint,
+            border: `1px solid ${TONE.warning.ring}`,
+            borderRadius: 12,
+            padding: "14px 18px",
+            color: TONE.warning.fg,
+          }}
+        >
+          <div style={{ fontWeight: 700, fontSize: "0.85rem", marginBottom: 6 }}>{section.heading}</div>
+          {section.blocks.map((block, i) => (
+            <SectionBlock key={i} block={block} />
+          ))}
+        </div>
+      ))}
       {/* Stacked full-width, not side-by-side: RelVal workflow tables carry a long Name
           column plus Errors/Exit code - splitting the row in half pushed those columns
           behind an easy-to-miss horizontal scrollbar. */}
       <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-        {groups.relval.length > 0 && <SectionGroupCard groupKey="relval" sections={groups.relval} />}
-        {groups.clang.length > 0 && <SectionGroupCard groupKey="clang" sections={groups.clang} />}
-        {groups.builds.length > 0 && <SectionGroupCard groupKey="builds" sections={groups.builds} />}
-        {groups.utests.length > 0 && <SectionGroupCard groupKey="utests" sections={groups.utests} />}
-        {groups.addons.length > 0 && <SectionGroupCard groupKey="addons" sections={groups.addons} />}
+        {groups.relval.length > 0 && <SectionGroupCard groupKey="relval" sections={groups.relval} notCompared={coverage.relval} />}
+        {groups.clang.length > 0 && <SectionGroupCard groupKey="clang" sections={groups.clang} notCompared={coverage.clang} />}
+        {groups.builds.length > 0 && <SectionGroupCard groupKey="builds" sections={groups.builds} notCompared={coverage.noBuild} />}
+        {groups.utests.length > 0 && <SectionGroupCard groupKey="utests" sections={groups.utests} notCompared={coverage.utests} />}
+        {groups.addons.length > 0 && <SectionGroupCard groupKey="addons" sections={groups.addons} notCompared={coverage.noBuild} />}
       </div>
 
       {groups.other.length > 0 && (
@@ -175,7 +211,7 @@ const DigestPanel = ({ markdown, loading, error, onRetry }) => {
     <div>
       {doc.archs.length > 1 && (
         <div style={{ marginBottom: 20 }}>
-          <ArchMatrix archs={doc.archs} statsByArch={statsByArch} activeIdx={activeIdx} onSelect={setActiveIdx} />
+          <ArchMatrix archs={doc.archs} statsByArch={statsByArch} coverageByArch={doc.archs.map(archCoverage)} activeIdx={activeIdx} onSelect={setActiveIdx} />
         </div>
       )}
       <ArchDetail arch={activeArch} />

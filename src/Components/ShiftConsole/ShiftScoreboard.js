@@ -191,7 +191,17 @@ function logProblemsTile({ data, loading, error }) {
   return { value: t.new_problems ?? 0, sub: `+${t.returned_problems ?? 0} intermittent`, tone: t.new_problems > 0 ? "danger" : "neutral" };
 }
 
-const ShiftScoreboard = ({ archCount, stats, windowLabel, archs, logProblems, onRetryLogProblems, logJumpTarget, onLogJump }) => {
+// A count tile for a category the "to" build hasn't imported yet (see digestStats.js
+// archCoverage): every architecture missing -> "—" / "not in yet", never a green 0;
+// some missing -> keep the count but say how many architectures aren't in yet.
+function coveredTile(value, missing, archCount, tone, notInText = "not in yet") {
+  if (archCount && missing >= archCount) return { value: "—", sub: notInText, tone: "neutral" };
+  if (missing > 0) return { value, sub: `${missing} of ${archCount} arch not in yet`, tone: value ? tone : "neutral" };
+  return { value, tone };
+}
+
+const ShiftScoreboard = ({ archCount, stats, coverage, windowLabel, archs, logProblems, onRetryLogProblems, logJumpTarget, onLogJump }) => {
+  const cov = coverage || { relvalMissing: 0, utestsMissing: 0, buildMissing: 0 };
   const [expandedTile, setExpandedTile] = useState(null);
   const toggle = (tile) => setExpandedTile((prev) => (prev === tile ? null : tile));
 
@@ -233,41 +243,36 @@ const ShiftScoreboard = ({ archCount, stats, windowLabel, archs, logProblems, on
         />
         <Tile
           icon={<BsExclamationTriangle size={17} />}
-          value={stats.newFailing}
           label="Newly failing workflows"
-          tone={stats.newFailing ? "danger" : "success"}
+          {...coveredTile(stats.newFailing, cov.relvalMissing, archCount, stats.newFailing ? "danger" : "success")}
           onClick={() => toggle("relvalNew")}
           expanded={expandedTile === "relvalNew"}
         />
         <Tile
           icon={<BsCheckCircle size={17} />}
-          value={stats.resolved}
           label="Resolved workflows"
-          tone="success"
+          {...coveredTile(stats.resolved, cov.relvalMissing, archCount, "success")}
           onClick={() => toggle("relvalResolved")}
           expanded={expandedTile === "relvalResolved"}
         />
         <Tile
           icon={<FaCubes size={16} />}
-          value={stats.newFailingBuilds}
           label="Build failures"
-          tone={stats.newFailingBuilds ? "danger" : "success"}
+          {...coveredTile(stats.newFailingBuilds, cov.buildMissing, archCount, stats.newFailingBuilds ? "danger" : "success")}
           onClick={() => toggle("builds")}
           expanded={expandedTile === "builds"}
         />
         <Tile
           icon={<FaVial size={16} />}
-          value={stats.newFailingUtests}
           label="Unit test failures"
-          tone={stats.newFailingUtests ? "danger" : "success"}
+          {...coveredTile(stats.newFailingUtests, cov.utestsMissing, archCount, stats.newFailingUtests ? "danger" : "success")}
           onClick={() => toggle("utests")}
           expanded={expandedTile === "utests"}
         />
         <Tile
           icon={<BsExclamationTriangle size={17} />}
-          value={stats.newWarnings}
           label="New Clang warnings"
-          tone={stats.newWarnings ? "warning" : "success"}
+          {...coveredTile(stats.newWarnings, cov.clangMissing || 0, archCount, stats.newWarnings ? "warning" : "success", "logs not parsed")}
           onClick={() => toggle("clang")}
           expanded={expandedTile === "clang"}
         />

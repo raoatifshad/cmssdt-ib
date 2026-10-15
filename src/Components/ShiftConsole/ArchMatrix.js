@@ -17,7 +17,7 @@ const Badge = ({ value, tone }) => (
   <StatusSphere status={value > 0 ? tone : "secondary"} value={value} />
 );
 
-const ArchMatrix = ({ archs, statsByArch, activeIdx, onSelect }) => (
+const ArchMatrix = ({ archs, statsByArch, coverageByArch, activeIdx, onSelect }) => (
   <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
     <div
       style={{
@@ -76,7 +76,13 @@ const ArchMatrix = ({ archs, statsByArch, activeIdx, onSelect }) => (
           </span>
           {CATEGORIES.map((c) => (
             <span key={c.key} style={{ display: "flex", justifyContent: "center" }}>
-              <Badge value={stats[c.key]} tone={c.tone} />
+              {/* no build on this architecture at the "to" side: nothing was compared, so
+                  "—" rather than a 0 that reads as "nothing changed" */}
+              {coverageByArch?.[idx]?.noBuild ? (
+                <span title="No build on this architecture yet" style={{ color: theme.textMuted, fontWeight: 700 }}>—</span>
+              ) : (
+                <Badge value={stats[c.key]} tone={c.tone} />
+              )}
             </span>
           ))}
         </button>

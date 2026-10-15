@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { Collapse } from "react-bootstrap";
-import { BsBell, BsCheckCircle, BsChevronRight, BsFileEarmarkText } from "react-icons/bs";
+import { BsBell, BsCheckCircle, BsChevronRight, BsExclamationTriangle, BsFileEarmarkText } from "react-icons/bs";
 import { FaCode, FaCubes, FaLayerGroup, FaPlus, FaVial } from "react-icons/fa";
 import { renderInline } from "./shiftMarkdown";
 import { theme, TONE, CATEGORY } from "./theme";
@@ -310,10 +310,52 @@ const AlertRow = ({ alert }) => {
   );
 };
 
-const AlertsPanel = ({ alerts, loading, error, onRetry }) => {
+// "RelVal and unit-test results" / "RelVal results" ... for the categories not imported yet.
+function missingText(coverage) {
+  const parts = [];
+  if (coverage.relvalAnyArchs) parts.push("RelVal");
+  if (coverage.utestsAnyArchs) parts.push("unit-test");
+  const what = parts.length ? `${parts.join(" and ")} results` : "some results";
+  return what;
+}
+
+const PartialDataNotice = ({ coverage, toTag, hasAlerts }) => (
+  <div
+    style={{
+      position: "relative",
+      display: "flex",
+      alignItems: "center",
+      gap: 10,
+      color: TONE.warning.fg,
+      background: TONE.warning.tint,
+      border: `1px solid ${TONE.warning.ring}`,
+      borderRadius: 10,
+      padding: "12px 16px 12px 20px",
+      fontSize: "0.88rem",
+      fontWeight: 500,
+      overflow: "hidden",
+      marginBottom: hasAlerts ? 12 : 0,
+    }}
+  >
+    <span style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 4, background: TONE.warning.fg }} />
+    <BsExclamationTriangle size={16} />
+    <span>
+      {hasAlerts ? "" : "No alerts so far, but "}
+      {missingText(coverage)} for <code style={{ color: "inherit" }}>{toTag || "the newest build"}</code> are not
+      fully imported yet on {coverage.partialArchs} of {coverage.archCount} architecture(s) - the build may still be
+      running. Missing results are not counted as passing; see the Shift digest for exactly what is missing.
+    </span>
+  </div>
+);
+
+const AlertsPanel = ({ alerts, coverage, toTag, loading, error, onRetry }) => {
   if (loading) return <PanelState kind="loading" text="Checking alerts…" slowText={SUMMARY_SLOW_TEXT} />;
   if (error) return <PanelState kind="error" text={error === "timeout" ? SUMMARY_TIMEOUT_TEXT : "Couldn't load alert status."} onRetry={onRetry} />;
 
+  const partial = Boolean(coverage?.anyMissing);
+  if ((!alerts || alerts.length === 0) && partial) {
+    return <PartialDataNotice coverage={coverage} toTag={toTag} hasAlerts={false} />;
+  }
   if (!alerts || alerts.length === 0) {
     return (
       <div
@@ -341,6 +383,7 @@ const AlertsPanel = ({ alerts, loading, error, onRetry }) => {
 
   return (
     <div>
+      {partial && <PartialDataNotice coverage={coverage} toTag={toTag} hasAlerts />}
       {alerts.map((alert, idx) => (
         <AlertRow key={alert.rule?.rule_id || idx} alert={alert} />
       ))}

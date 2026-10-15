@@ -5,7 +5,7 @@ import { BsArrowRepeat, BsArrowRight, BsBoxArrowRight, BsChevronLeft } from "rea
 import { FaClipboardList } from "react-icons/fa";
 import { fetchShiftJson, fetchShiftSummaryWindows, fetchTestLogProblems, isShiftLoginAvailable } from "./shiftApi";
 import { buildDigestDocument } from "./shiftMarkdown";
-import { aggregateStats, buildComparisonAlerts } from "./digestStats";
+import { aggregateCoverage, aggregateStats, buildComparisonAlerts } from "./digestStats";
 import { buildLogProblemsAlert } from "./logProblems";
 import { theme, CARD } from "./theme";
 import AlertsPanel from "./AlertsPanel";
@@ -301,6 +301,7 @@ const ShiftConsolePage = () => {
   const archOptions = useMemo(() => digestDoc.archs.map((a) => a.name.replace(/`/g, "")), [digestDoc]);
   const digestWindow = useMemo(() => parseDigestWindow(digestDoc.title), [digestDoc]);
   const scoreboardStats = useMemo(() => aggregateStats(digestDoc.archs), [digestDoc]);
+  const coverage = useMemo(() => aggregateCoverage(digestDoc.archs), [digestDoc]);
   // "<from tag> → <to tag>" for whatever window the digest currently on screen covers - shown
   // once above Recent Problems and again on the Shift Digest scoreboard, so both sections
   // always name the exact comparison they're both reflecting.
@@ -484,18 +485,22 @@ const ShiftConsolePage = () => {
                   fontWeight: 700,
                   borderRadius: 999,
                   padding: "3px 10px",
-                  color: allAlerts.length ? "#f87171" : "#4ade80",
-                  background: allAlerts.length ? "rgba(239, 68, 68, 0.14)" : "rgba(34, 197, 94, 0.14)",
-                  border: `1px solid ${allAlerts.length ? "rgba(239, 68, 68, 0.4)" : "rgba(34, 197, 94, 0.35)"}`,
+                  // amber "Partial data" instead of green "All clear" while the "to" build's
+                  // results aren't all imported (see digestStats.js aggregateCoverage)
+                  color: allAlerts.length ? "#f87171" : coverage.anyMissing ? "#fbbf24" : "#4ade80",
+                  background: allAlerts.length ? "rgba(239, 68, 68, 0.14)" : coverage.anyMissing ? "rgba(251, 191, 36, 0.14)" : "rgba(34, 197, 94, 0.14)",
+                  border: `1px solid ${allAlerts.length ? "rgba(239, 68, 68, 0.4)" : coverage.anyMissing ? "rgba(251, 191, 36, 0.4)" : "rgba(34, 197, 94, 0.35)"}`,
                 }}
               >
                 {allAlerts.length > 0 && <LivePulse color="#f87171" />}
-                {allAlerts.length ? `${allAlerts.length} firing` : "All clear"}
+                {allAlerts.length ? `${allAlerts.length} firing` : coverage.anyMissing ? "Partial data" : "All clear"}
               </span>
             )}
           </div>
           <AlertsPanel
             alerts={allAlerts}
+            coverage={coverage}
+            toTag={digestWindow?.to}
             loading={summary.loading}
             error={summary.error}
             onRetry={() => loadSummary(arch, range)}
@@ -613,6 +618,7 @@ const ShiftConsolePage = () => {
           <ShiftScoreboard
             archCount={digestDoc.archs.length}
             stats={scoreboardStats}
+            coverage={coverage}
             windowLabel={windowLabel}
             archs={digestDoc.archs}
             logProblems={{ ...logProblems, data: logProblemsCurrent ? logProblems.data : null }}

@@ -41,6 +41,55 @@ const SECTION_PATTERNS = {
 // so a category added to SECTION_PATTERNS only has to be listed here once.
 const NEW_ISSUE_KEYS = ["newFailing", "newWarnings", "newFailingBuilds", "newFailingUtests", "newFailingAddons"];
 
+// The backend's per-architecture "#### Results not imported yet" section (see
+// generate_shift_summary's _digest_coverage_notes): each item starts with its category -
+// "RelVal results:", "Unit-test results:" or "Build:" (the "to" build has no build on that
+// architecture at all). Found 2026-10-15: the default window ended at a build whose RelVals
+// weren't imported yet and the console showed "0 newly failing" / "All clear" - missing
+// data read as good news. A tile whose category is missing must say "not in yet", not 0.
+const COVERAGE_PATTERN = /results not imported yet/i;
+
+export function archCoverage(arch) {
+  const section = arch.sections.find((s) => COVERAGE_PATTERN.test(s.heading));
+  const items = section ? section.blocks.flatMap((b) => (b.type === "list" ? b.items : [])) : [];
+  const noBuild = items.some((item) => /^build:/i.test(item));
+  // "missing" = the primary build's results are not in (the tile can't say anything);
+  // a note naming only sub-IBs, or "only N of M imported", is partial: counts still shown.
+  const primaryMissing = (re) => items.some((item) => re.test(item) && /primary build/i.test(item));
+  return {
+    notes: items,
+    noBuild,
+    relval: noBuild || primaryMissing(/^relval results:\s*none/i),
+    utests: noBuild || primaryMissing(/^unit-test results:\s*none/i),
+    clang: noBuild || items.some((item) => /^clang warnings:/i.test(item)),
+    // any RelVal/unit-test note at all (primary or sub-IB, none or partial) - what the
+    // "Partial data" badge and notice key off; clang-only gaps don't count there (clang
+    // logs are staged by hand and usually missing - the Clang tile/card say so themselves)
+    relvalAny: noBuild || items.some((item) => /^relval results:/i.test(item)),
+    utestsAny: noBuild || items.some((item) => /^unit-test results:/i.test(item)),
+  };
+}
+
+// How many of the digest's architectures are missing each category (see archCoverage).
+export function aggregateCoverage(archs) {
+  const per = (archs || []).map(archCoverage);
+  return {
+    archCount: per.length,
+    relvalMissing: per.filter((c) => c.relval).length,
+    utestsMissing: per.filter((c) => c.utests).length,
+    buildMissing: per.filter((c) => c.noBuild).length,
+    clangMissing: per.filter((c) => c.clang).length,
+    relvalAnyArchs: per.filter((c) => c.relvalAny).length,
+    utestsAnyArchs: per.filter((c) => c.utestsAny).length,
+    partialArchs: per.filter((c) => c.relvalAny || c.utestsAny).length,
+    anyMissing: per.some((c) => c.relvalAny || c.utestsAny),
+  };
+}
+
+export function isCoverageSection(section) {
+  return COVERAGE_PATTERN.test(section.heading);
+}
+
 export function archStats(arch) {
   const stats = {};
   Object.entries(SECTION_PATTERNS).forEach(([key, pattern]) => {
