@@ -1,6 +1,7 @@
 import React, { Component } from 'react';
 import IBGroupFrame from './IBGroupFrame';
 import { groupAndTransformIBDataList, getInfoFromRelease } from '../../Utils/processing';
+import { buildPreviousIbLookup } from './ibDelta';
 import PropTypes from 'prop-types';
 import { Spinner } from 'react-bootstrap';
 import {
@@ -312,6 +313,17 @@ class IBGroups extends Component {
         return transformedData
             .map((group) => this.filterIBGroup(group))
             .filter((group) => group && group.length > 0);
+    };
+
+    // Built from the unfiltered data and reused until it changes, so filters never alter the
+    // baseline and the PureComponent IBGroupFrames don't re-render for a new Map each time.
+    getPreviousIbLookup = () => {
+        const { transformedData } = this.state;
+        if (this.previousIbLookupSource !== transformedData) {
+            this.previousIbLookupSource = transformedData;
+            this.previousIbLookup = buildPreviousIbLookup(transformedData);
+        }
+        return this.previousIbLookup;
     };
 
     getGroupKey = (group, index) => {
@@ -671,6 +683,7 @@ class IBGroups extends Component {
                                 IBGroup={IBGroup}
                                 releaseQue={releaseQue}
                                 highlightTarget={highlightTarget}
+                                previousIbLookup={this.getPreviousIbLookup()}
                                 expandAllCommits={
                                     showAllPullRequests || this.state.matchedPrGroupKey === groupKey
                                 }

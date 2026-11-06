@@ -157,6 +157,16 @@ const guideSphereStyles = {
   }
 };
 
+const GUIDE_CHANGE_MARKERS = [
+  { label: "↑ +2", color: "#b91c1c", title: "More failures", text: "The failure count went up. Shown in amber for warnings and known failures." },
+  { label: "↓ -1", color: "#15803d", title: "Fewer", text: "The count of failures or warnings went down." },
+  { label: "=", color: "#64748b", title: "Same count", text: "The count hasn't changed, but the individual failures may differ." },
+  { label: "New", color: "#b91c1c", title: "Newly failing", text: "Was passing in the last build and is failing now." },
+  { label: "Fixed", color: "#15803d", title: "Now passing", text: "Was failing in the last build and has no failures now." },
+  { label: "Blank", color: "#64748b", title: "No marker", text: "Nothing to compare yet, still running, or passing in both builds." },
+  { label: "Hover", color: "#64748b", title: "See the details", text: "Shows the count change, the build compared with, and the names. Names cover RelVal workflows and unit test packages; for other rows, open the cell." }
+];
+
 const GuideSphere = ({ variant = "success", children }) => (
   <span
    style={{ 
@@ -1037,6 +1047,37 @@ const Navigation = ({ toLinks, flaworControl, archControl, showAllPullRequests =
                   text="Use the Filters button to show or hide architecture and flavor filters."
                 />
               </div>
+            </div>
+          </div>
+
+          <div className="mb-4">
+            <div className="fw-semibold mb-1" style={{ color: THEME.text.primary, fontSize: "1rem" }}>
+              Changes Since the Last Build
+            </div>
+            <small className="text-muted d-block mb-3">
+              In the latest IB only, each result is compared with the last build of the same flavor and architecture.
+            </small>
+
+            <div className="row g-3">
+              {GUIDE_CHANGE_MARKERS.map(({ label, color, title, text }) => (
+                <div className="col-md-6" key={title}>
+                  <div
+                    className="d-flex align-items-start p-3 rounded-3 h-100"
+                    style={{ border: "1px solid #e2e8f0", background: "#ffffff" }}
+                  >
+                    <span
+                      className="me-3 text-center"
+                      style={{ color, fontWeight: 700, fontSize: "0.82rem", minWidth: 44, flexShrink: 0 }}
+                    >
+                      {label}
+                    </span>
+                    <div>
+                      <div className="fw-semibold mb-1">{title}</div>
+                      <small className="text-muted">{text}</small>
+                    </div>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
 

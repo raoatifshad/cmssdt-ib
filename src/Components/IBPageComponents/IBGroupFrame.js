@@ -118,6 +118,7 @@ class IBGroupFrame extends PureComponent {
                             data={IBGroup}
                             releaseQue={releaseQue}
                             highlightTarget={this.props.highlightTarget}
+                            previousIbLookup={this.props.previousIbLookup}
                         />
                     );
                 }
