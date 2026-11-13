@@ -14,7 +14,7 @@ const ChatContext = createContext(null);
 // .env.production) — add VITE_CHAT_API_BASE alongside it. Point it at the
 // FastAPI server's address; for local prototype use that's
 // http://localhost:8000 (see server/api_server.py in the cmssdt-chatbot repo).
-const CHAT_API_BASE = import.meta.env.VITE_CHAT_API_BASE || "http://localhost:8000";
+export const CHAT_API_BASE = import.meta.env.VITE_CHAT_API_BASE || "http://localhost:8000";
 const SESSION_STORAGE_KEY = "cmssdt-session";
 
 const getStoredSessionId = () => sessionStorage.getItem(SESSION_STORAGE_KEY);
@@ -23,6 +23,8 @@ const normalizeMessage = (message) => ({
   role: message?.role === "user" ? "user" : "assistant",
   content: String(message?.content || ""),
   actions: Array.isArray(message?.actions) ? message.actions : [],
+  // "ask next" questions under an answer (the bot's response field "suggestions"); not scope choices like actions
+  suggestions: Array.isArray(message?.suggestions) ? message.suggestions : [],
   isClarification: Boolean(message?.isClarification),
 });
 
@@ -136,6 +138,7 @@ export function ChatProvider({ children }) {
             role: "assistant",
             content: data.answer,
             actions: data.actions,
+            suggestions: data.suggestions,
             isClarification: data.is_clarification || data.needs_clarification || data.response_type === "clarification",
           },
         });

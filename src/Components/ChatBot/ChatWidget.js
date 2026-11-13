@@ -16,6 +16,7 @@ import { Button, Form, Spinner } from "react-bootstrap";
 import DOMPurify from "dompurify";
 import { marked } from "marked";
 import { useChat } from "../../context/ChatContext";
+import SampleQuestions from "./SampleQuestions";
 import { config } from "../../config";
 import { getInfoFromRelease } from "../../Utils/processing";
 
@@ -1138,6 +1139,8 @@ export default function ChatWidget({ currentReleaseQue, onHighlightRequest } = {
   const { messages, loading, error, historyStatus, historyLoading, sendMessage, retryLastMessage, resetChat } = useChat();
   const bodyRef = useRef(null);
   const panelRef = useRef(null);
+  const closeTabRef = useRef(null);
+  const closeClickRef = useRef(null);
 
   useEffect(() => {
     if (bodyRef.current) {
@@ -1521,6 +1524,26 @@ export default function ChatWidget({ currentReleaseQue, onHighlightRequest } = {
     }, 650);
   };
 
+  closeClickRef.current = handleCloseClick;
+
+  // A click anywhere outside the open panel (and outside its bot close tab) closes it, with the same bye wave as the close tab
+  // (owner 2026-11-13). Not while resizing: that drag starts on the panel's edge and may end outside it.
+  useEffect(() => {
+    if (!open) return undefined;
+    const handlePointerDown = (event) => {
+      const target = event.target;
+      if (isResizing || !(target instanceof Node) || !document.contains(target)) return;
+      if (panelRef.current?.contains(target) || closeTabRef.current?.contains(target)) return;
+      closeClickRef.current?.();
+    };
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("touchstart", handlePointerDown, { passive: true });
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("touchstart", handlePointerDown);
+    };
+  }, [open, isResizing]);
+
   const mascotRevealed = isTouchDevice || mascotVisible || farewellRevealed;
   const closeTabRevealed = isTouchDevice || mascotVisible;
   const mascotGesture = showGreeting ? "greet" : showFarewell ? "bye" : "idle";
@@ -1642,6 +1665,7 @@ export default function ChatWidget({ currentReleaseQue, onHighlightRequest } = {
           finishes does the panel actually close. */}
       {open && !isTouchDevice && (
         <div
+          ref={closeTabRef}
           onMouseEnter={() => setMascotVisible(true)}
           onMouseLeave={() => setMascotVisible(false)}
           style={{
@@ -1762,10 +1786,7 @@ export default function ChatWidget({ currentReleaseQue, onHighlightRequest } = {
             </div>
           )}
           {messages.length === 0 && (
-            <div className="text-muted" style={{ fontSize: "12px", lineHeight: "1.4" }}>
-              Ask about clang warnings, RelVals, unit tests, or PRs — e.g. "How many
-              warnings are in Alignment/OfflineValidation?"
-            </div>
+            <SampleQuestions onAsk={(q) => sendMessage(q)} disabled={loading || historyLoading} />
           )}
           {messages.map((m, i) => {
             const hasTable = Boolean(getTableFromContent(m.content));
@@ -1997,6 +2018,20 @@ export default function ChatWidget({ currentReleaseQue, onHighlightRequest } = {
                               </Button>
                             );
                           })}
+                        </div>
+                      )}
+                      {m.role === "assistant" && i === messages.length - 1 && !loading && actions.length === 0
+                        && Array.isArray(m.suggestions) && m.suggestions.length > 0 && (
+                        // "ask next" (2026-11-13): the next step of the failure chain; only under the newest answer
+                        <div aria-label="Ask next" style={{ display: "flex", flexWrap: "wrap", gap: "5px", marginTop: "8px", alignItems: "center" }}>
+                          <span style={{ color: "#6c757d", fontSize: "10px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.03em" }}>Ask next</span>
+                          {m.suggestions.map((s, si) => (
+                            <Button key={`${s.label}-${si}`} size="sm" variant="outline-secondary" title={s.question}
+                                    onClick={() => sendMessage(s.question)} disabled={loading || historyLoading || !s.question}
+                                    style={{ padding: "2px 7px", fontSize: "11px", maxWidth: "100%", overflowWrap: "anywhere" }}>
+                              {s.label}
+                            </Button>
+                          ))}
                         </div>
                       )}
                       {hasWorkflows && m.role === "assistant" && (
